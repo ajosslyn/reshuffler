@@ -1,7 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { fetchPlaylistDetails } from '../api/spotify';
 import './PlaylistDetail.css';
+
+// Properly extend the Window interface for TypeScript
+declare global {
+  interface Window {
+    Spotify?: {
+      Player?: any;
+    }
+  }
+}
 
 interface Track {
   id: string;
@@ -12,6 +21,7 @@ interface Track {
     images?: Array<{ url: string }>;
   };
   duration_ms: number;
+  preview_url?: string;
 }
 
 interface PlaylistDetails {
@@ -40,6 +50,11 @@ const PlaylistDetail: React.FC = () => {
   const [playlist, setPlaylist] = useState<PlaylistDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isShuffled, setIsShuffled] = useState<boolean>(false);
+  const [shuffledTracks, setShuffledTracks] = useState<any[]>([]);
+  const [currentlyPlayingTrack, setCurrentlyPlayingTrack] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const loadPlaylistDetails = async () => {
@@ -69,6 +84,27 @@ const PlaylistDetail: React.FC = () => {
     loadPlaylistDetails();
   }, [id, navigate]);
 
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.addEventListener('ended', handleTrackEnded);
+      audioRef.current.addEventListener('error', handleAudioError);
+    }
+    
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.removeEventListener('ended', handleTrackEnded);
+        audioRef.current.removeEventListener('error', handleAudioError);
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   const formatDuration = (ms: number): string => {
     const minutes = Math.floor(ms / 60000);
     const seconds = ((ms % 60000) / 1000).toFixed(0);
@@ -77,6 +113,98 @@ const PlaylistDetail: React.FC = () => {
 
   const handleBackClick = () => {
     navigate('/dashboard');
+  };
+
+  const handleSmartShuffle = () => {
+    if (!playlist) return;
+    
+    if (isShuffled) {
+      setIsShuffled(false);
+      return;
+    }
+    
+    const tracksToShuffle = [...playlist.tracks.items];
+    
+    for (let i = tracksToShuffle.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tracksToShuffle[i], tracksToShuffle[j]] = [tracksToShuffle[j], tracksToShuffle[i]];
+    }
+    
+    setShuffledTracks(tracksToShuffle);
+    setIsShuffled(true);
+  };
+
+  const handlePlayTrack = (track: Track) => {
+    if (window.Spotify && window.Spotify.Player) {
+      console.log("Using Spotify Web Playback SDK to play track:", track.id);
+    } else {
+      if (!track.preview_url) {
+        console.log("No preview available for this track");
+        alert("No preview available for this track. Full playback requires Spotify Premium.");
+        return;
+      }
+      
+      if (currentlyPlayingTrack === track.id) {
+        if (isPlaying) {
+          audioRef.current?.pause();
+        } else {
+          audioRef.current?.play();
+        }
+        setIsPlaying(!isPlaying);
+      } else {
+        if (audioRef.current) {
+          audioRef.current.src = track.preview_url || '';
+          audioRef.current.play()
+            .then(() => {
+              setIsPlaying(true);
+              setCurrentlyPlayingTrack(track.id);
+            })
+            .catch(err => {
+              console.error("Error playing track:", err);
+              alert("Failed to play track preview. This may be due to browser autoplay restrictions.");
+            });
+        }
+      }
+    }
+  };
+
+  const handleMainPlayButtonClick = () => {
+    if (!currentlyPlayingTrack && playlist?.tracks?.items && playlist.tracks.items.length > 0) {
+      const tracks = isShuffled ? shuffledTracks : playlist.tracks.items;
+      // Extra safety check before accessing index
+      if (tracks && tracks.length > 0 && tracks[0].track) {
+        handlePlayTrack(tracks[0].track);
+      }
+    } else {
+      if (isPlaying) {
+        audioRef.current?.pause();
+      } else {
+        audioRef.current?.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleTrackEnded = () => {
+    const tracks = isShuffled ? shuffledTracks : playlist?.tracks?.items;
+    // Add a null check for tracks
+    if (!tracks) return;
+    
+    const currentIndex = tracks.findIndex(item => item.track.id === currentlyPlayingTrack);
+    
+    if (currentIndex >= 0 && currentIndex < tracks.length - 1) {
+      const nextTrack = tracks[currentIndex + 1].track;
+      handlePlayTrack(nextTrack);
+    } else {
+      setIsPlaying(false);
+      setCurrentlyPlayingTrack(null);
+    }
+  };
+
+  const handleAudioError = (e: Event) => {
+    console.error("Audio playback error:", e);
+    setIsPlaying(false);
+    alert("Error playing track. The preview may not be available.");
   };
 
   if (loading) {
@@ -120,7 +248,6 @@ const PlaylistDetail: React.FC = () => {
         <svg viewBox="0 0 24 24" width="24" height="24">
           <path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
         </svg>
-        Back to Dashboard
       </button>
       
       <div className="playlist-header">
@@ -133,35 +260,54 @@ const PlaylistDetail: React.FC = () => {
             <p className="playlist-description">{playlist.description}</p>
           )}
           <div className="playlist-meta">
-            <span>By {playlist.owner.display_name}</span>
+            <span>{playlist.owner.display_name}</span>
             {playlist.followers && (
-              <span> • {playlist.followers.total.toLocaleString()} followers</span>
+              <span> • {playlist.followers.total.toLocaleString()} likes</span>
             )}
-            <span> • {playlist.tracks.total} tracks</span>
+            <span> • {playlist.tracks.total} songs</span>
           </div>
+        </div>
+      </div>
+      
+      <div className="playlist-actions-container">
+        <button 
+          className={`play-button ${isPlaying ? 'playing' : ''}`} 
+          onClick={handleMainPlayButtonClick}
+        >
+          {isPlaying ? (
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+              <rect x="14" y="4" width="4" height="16" fill="currentColor" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <polygon points="8,5 19,12 8,19" fill="currentColor" />
+            </svg>
+          )}
+        </button>
+        
+        <div className="playlist-action-buttons">
+          <button className={`shuffle-button ${isShuffled ? 'active' : ''}`} onClick={handleSmartShuffle}>
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17L10.59 9.17zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm0.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+            </svg>
+          </button>
           
-          <div className="playlist-actions">
-            <button className="btn play-button">
-              <svg viewBox="0 0 24 24" width="24" height="24">
-                <polygon points="8,5 19,12 8,19" fill="currentColor" />
-              </svg>
-              Play
-            </button>
-            <button className="btn btn-outline shuffle-button">
-              <svg viewBox="0 0 24 24" width="20" height="20">
-                <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17L10.59 9.17zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm0.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
-              </svg>
-              Smart Shuffle
-            </button>
-          </div>
+          <button className="more-button">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <circle cx="12" cy="4" r="2" fill="currentColor" />
+              <circle cx="12" cy="12" r="2" fill="currentColor" />
+              <circle cx="12" cy="20" r="2" fill="currentColor" />
+            </svg>
+          </button>
         </div>
       </div>
       
       <div className="tracks-container">
         <div className="tracks-header">
           <div className="track-number">#</div>
-          <div className="track-title">Title</div>
-          <div className="track-album">Album</div>
+          <div className="track-title">TITLE</div>
+          <div className="track-album">ALBUM</div>
           <div className="track-duration">
             <svg viewBox="0 0 16 16" width="16" height="16">
               <path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zM8 14A6 6 0 118 2a6 6 0 010 12zM8 3.5a.5.5 0 01.5.5v4.096l3.813 2.292a.5.5 0 01-.526.851l-4-2.5a.5.5 0 01-.287-.454V4a.5.5 0 01.5-.5z" />
@@ -170,13 +316,49 @@ const PlaylistDetail: React.FC = () => {
         </div>
         
         <div className="tracks-list">
-          {playlist.tracks.items.map((item, index) => (
-            <div key={`${item.track.id}-${index}`} className="track-item">
-              <div className="track-number">{index + 1}</div>
+          {(isShuffled ? shuffledTracks : playlist.tracks.items).map((item, index) => (
+            <div 
+              key={`${item.track.id}-${index}`} 
+              className={`track-item ${currentlyPlayingTrack === item.track.id ? 'playing' : ''}`}
+              onClick={() => handlePlayTrack(item.track)}
+            >
+              <div className="track-number">
+                {currentlyPlayingTrack === item.track.id && isPlaying ? (
+                  <span className="now-playing-icon">
+                    <span className="bar"></span>
+                    <span className="bar"></span>
+                    <span className="bar"></span>
+                  </span>
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <div className="play-icon">
+                {currentlyPlayingTrack === item.track.id && isPlaying ? (
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+                    <rect x="14" y="4" width="4" height="16" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="16" height="16">
+                    <polygon points="8,5 19,12 8,19" fill="currentColor" />
+                  </svg>
+                )}
+              </div>
               <div className="track-title-container">
-                <div className="track-name">{item.track.name}</div>
-                <div className="track-artist">
-                  {item.track.artists.map(artist => artist.name).join(', ')}
+                <div className="track-artwork">
+                  <img 
+                    src={item.track.album.images && item.track.album.images.length > 0 
+                      ? item.track.album.images[item.track.album.images.length - 1].url 
+                      : 'https://via.placeholder.com/40'} 
+                    alt={item.track.album.name} 
+                  />
+                </div>
+                <div className="track-info">
+                  <div className="track-name">{item.track.name}</div>
+                  <div className="track-artist">
+                    {item.track.artists.map((artist: { name: string }) => artist.name).join(', ')}
+                  </div>
                 </div>
               </div>
               <div className="track-album">{item.track.album.name}</div>

@@ -79,51 +79,77 @@ export const fetchPlaylistDetails = async (accessToken: string, playlistId: stri
   return await response.json();
 };
 
+// Comment out the fetchAudioFeatures function since we're not using it anymore
+/*
 export const fetchAudioFeatures = async (accessToken: string, trackIds: string[]) => {
-  if (!trackIds || trackIds.length === 0) {
-    console.warn("No track IDs provided for audio features");
-    return { audio_features: [] };
-  }
+  // Code removed - we're using our estimator instead
+};
+*/
 
-  // Join track IDs but limit to 100 per request (Spotify API limit)
-  const ids = trackIds.slice(0, 100).join(',');
+// export const fetchAudioFeatures = async (accessToken: string, trackIds: string[]) => {
+//   if (!trackIds || trackIds.length === 0) {
+//     console.warn("No track IDs provided for audio features");
+//     return { audio_features: [] };
+//   }
+
+//   // Join track IDs but limit to 100 per request (Spotify API limit)
+//   const ids = trackIds.slice(0, 100).join(',');
   
+//   try {
+//     const response = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
+//       headers: {
+//         'Authorization': `Bearer ${accessToken}`
+//       }
+//     });
+
+//     if (response.status === 401 || response.status === 403) {
+//       // For both 401 and 403, we should consider prompting a re-login
+//       localStorage.setItem('skipAudioFeatures', 'true'); // Skip future attempts
+      
+//       // If we get 3+ permission failures, force a logout
+//       const permissionErrors = parseInt(localStorage.getItem('permissionErrors') || '0') + 1;
+//       localStorage.setItem('permissionErrors', permissionErrors.toString());
+      
+//       if (permissionErrors >= 3) {
+//         console.warn("Multiple permission errors, redirecting to login...");
+//         localStorage.removeItem('accessToken'); // Clear token
+//         window.location.href = '/login?reason=permissions'; // Redirect with reason
+//         return { audio_features: [] };
+//       }
+      
+//       return { audio_features: [] };
+//     }
+    
+//     // Reset permission errors counter on success
+//     localStorage.removeItem('permissionErrors');
+    
+//     if (!response.ok) {
+//       console.error(`Error fetching audio features: ${response.statusText}`);
+//       return { audio_features: [] };
+//     }
+
+//     return await response.json();
+//   } catch (error) {
+//     console.error("Error in fetchAudioFeatures:", error);
+//     return { audio_features: [] };
+//   }
+// };
+
+export const fetchUserProfile = async (accessToken: string) => {
   try {
-    const response = await fetch(`https://api.spotify.com/v1/audio-analysis?ids=${ids}`, {
+    const response = await fetch('https://api.spotify.com/v1/me', {
       headers: {
         'Authorization': `Bearer ${accessToken}`
       }
     });
 
-    if (response.status === 401 || response.status === 403) {
-      // For both 401 and 403, we should consider prompting a re-login
-      localStorage.setItem('skipAudioFeatures', 'true'); // Skip future attempts
-      
-      // If we get 3+ permission failures, force a logout
-      const permissionErrors = parseInt(localStorage.getItem('permissionErrors') || '0') + 1;
-      localStorage.setItem('permissionErrors', permissionErrors.toString());
-      
-      if (permissionErrors >= 3) {
-        console.warn("Multiple permission errors, redirecting to login...");
-        localStorage.removeItem('accessToken'); // Clear token
-        window.location.href = '/login?reason=permissions'; // Redirect with reason
-        return { audio_features: [] };
-      }
-      
-      return { audio_features: [] };
-    }
-    
-    // Reset permission errors counter on success
-    localStorage.removeItem('permissionErrors');
-    
     if (!response.ok) {
-      console.error(`Error fetching audio features: ${response.statusText}`);
-      return { audio_features: [] };
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error("Error in fetchAudioFeatures:", error);
-    return { audio_features: [] };
+    console.error('Error fetching user profile:', error);
+    throw error;
   }
 };

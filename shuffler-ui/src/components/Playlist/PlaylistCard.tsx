@@ -30,8 +30,8 @@ const PlaylistCard: React.FC<PlaylistCardProps> = ({ playlist, onSelect }) => {
             <div className="playlist-cover">
                 <img src={coverImage} alt={playlist.name} />
                 <div className="play-button">
-                    <svg viewBox="0 0 24 24">
-                        <polygon points="8,5 19,12 8,19" fill="currentColor" />
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                        <polygon points="8,5 19,12 8,19" fill="white" />
                     </svg>
                 </div>
             </div>

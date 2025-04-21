@@ -1,531 +1,736 @@
+/* Spotify-inspired playlist page with purple theme - professionally fixed */
+
+/* Global container refinements */
 .playlist-detail-container {
-  padding: var(--spacing-lg);
-  max-width: 1200px;
-  margin: 0 auto;
-  animation: fadeIn 0.4s ease-in;
+  padding: 0;
+  max-width: 100%;
+  margin: 0;
+  animation: fadeIn 0.4s ease-out;
+  background: linear-gradient(180deg, rgba(18, 18, 22, 0.8) 0%, rgba(18, 18, 22, 1) 100%);
+  min-height: 100vh;
+  color: white;
+  font-family: 'Circular', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
+/* Spotify-style back button fix */
 .back-button {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 100;
   display: flex;
   align-items: center;
-  background: transparent;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
   border: none;
-  color: var(--color-text-secondary);
+  color: white;
   cursor: pointer;
-  padding: var(--spacing-sm) var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
+  width: 32px;
+  height: 32px;
   font-size: 14px;
   transition: all 0.2s ease;
-  border-radius: var(--border-radius-lg);
+  border-radius: 50%;
+  padding: 0;
+
 }
 
 .back-button:hover {
-  color: var(--color-text-primary);
-  background-color: rgba(255, 255, 255, 0.05);
-  transform: translateX(-3px);
+  background-color: rgba(108, 45, 199, 0.7);
+  transform: scale(1.05);
 }
 
 .back-button svg {
-  margin-right: var(--spacing-sm);
+  width: 32px;
+  height: 32px;
 }
 
-/* Playlist header with gradient overlay - FIXED */
+.back-button::after {
+  content: 'Back to Dashboard';
+  position: absolute;
+  left: 40px;
+  top: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+}
+
+.back-button:hover::after {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Professional Spotify-style header fix */
+
+/* Refined header layout and padding */
 .playlist-header {
   display: flex;
-  margin-bottom: var(--spacing-xl);
   position: relative;
-  padding: var(--spacing-lg);
-  border-radius: var(--border-radius-md);
-  background: linear-gradient(to bottom, rgba(108, 45, 199, 0.2), rgba(0, 0, 0, 0.5));
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 96px 32px 24px;
+  background-image: linear-gradient(rgba(0,0,0,0) 0%, rgba(0,0,0,.5) 100%);
+  align-items: flex-start;
+  z-index: 1;
+  gap: 24px;
 }
 
-/* FIX: Specific styling for the detail view playlist cover */
+/* Enhanced header gradient with proper purple tint */
+.playlist-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(transparent 0, rgba(108, 45, 199, 0.4) 100%), 
+              linear-gradient(rgba(0, 0, 0, .5) 0, rgba(0, 0, 0, .7) 100%);
+  z-index: -1;
+}
+
+/* Fixed image aspect ratio - completely rewritten cover styles */
+
+/* Complete rewrite of cover container */
 .playlist-header .playlist-cover {
-  min-width: 232px;
-  width: 232px;
-  height: 232px;
-  margin-right: var(--spacing-xl);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  border-radius: var(--border-radius-md);
+  position: relative;
+  width: 192px; /* Increased from 128px to 192px */
+  padding-top: 0;
+  height: 0;
+  padding-bottom: 192px; /* Increased to match width for square */
+  min-width: 192px; /* Updated min-width */
+  max-width: 192px; /* Updated max-width */
+  flex: 0 0 auto;
+  box-shadow: 0 4px 60px rgba(0, 0, 0, .5);
+  border-radius: 0;
   overflow: hidden;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-  flex-shrink: 0;
+  display: block;
 }
 
-.playlist-header .playlist-cover:hover {
-  transform: scale(1.02);
-  box-shadow: 0 12px 30px rgba(108, 45, 199, 0.3);
-}
-
+/* Fixed image styling */
 .playlist-header .playlist-cover img {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
-/* FIX: Added a semi-transparent background for text contrast */
+/* Adjust playlist info spacing for larger image */
 .playlist-info {
+  flex: 1;
+  max-width: calc(100% - 216px); /* Adjusted for larger image */
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   z-index: 1;
-  padding: var(--spacing-md);
-  border-radius: var(--border-radius-md);
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(5px);
-  margin-bottom: var(--spacing-md);
+  padding-bottom: 4px;
 }
 
-/* FIX: Improved text contrast */
+/* Enhanced PLAYLIST label */
+.playlist-info::before {
+  content: 'PLAYLIST';
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: 1px;
+  display: block;
+  color: #fff;
+  opacity: 0.7;
+}
+
+/* Adjust title size for smaller cover */
 .playlist-title {
-  font-size: 48px;
-  font-weight: 900;
-  margin: var(--spacing-sm) 0;
+  font-size: 60px;
+  line-height: 1;
+  margin: 0 0 12px;
   color: white;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
   letter-spacing: -0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
-/* FIX: Improved description visibility */
+/* Improved description spacing */
 .playlist-description {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 16px;
-  margin-bottom: var(--spacing-md);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-width: 800px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  margin-bottom: 12px;
+  max-width: 100%;
   line-height: 1.5;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-/* FIX: Improved metadata visibility */
+/* Refined metadata display */
 .playlist-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
-  margin-bottom: var(--spacing-lg);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  font-weight: 500;
+  margin-top: 0;
+  gap: 4px;
 }
 
-.playlist-meta span {
-  position: relative;
-  padding: 0 var(--spacing-md);
-  margin: 4px 0;
+/* Lighter play button section */
+.playlist-actions-container {
+  background-color: transparent;
+  padding: 24px 32px;
+  margin-top: 0;
 }
 
-.playlist-meta span:first-child {
-  padding-left: 0;
-}
-
-/* FIX: More visible separator dots */
-.playlist-meta span:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 4px;
-  background-color: var(--color-primary);
-  border-radius: 50%;
-}
-
-.playlist-actions {
-  display: flex;
-  gap: var(--spacing-md);
-  margin-top: var(--spacing-md);
-}
-
+/* Bright purple play button */
 .play-button {
+  background: #6c2dc7;
+  width: 56px;
+  height: 56px;
+}
+
+/* Play button states */
+.play-button.playing {
+  background: #9a45ff;
+}
+
+.play-button.playing:hover {
+  background: #b772ff;
+}
+
+/* Spotify-style shuffle and more buttons */
+.playlist-action-buttons {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
-  padding: var(--spacing-sm) var(--spacing-lg);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-  border-radius: var(--border-radius-lg);
-  transition: all 0.3s cubic-bezier(0.2, 0, 0.3, 1);
 }
 
-.play-button:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(108, 45, 199, 0.4);
-}
-
-.play-button:active {
-  transform: scale(0.98);
-}
-
-.shuffle-button {
+.shuffle-button, .more-button {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  margin-right: 24px;
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--color-text-primary);
-  border-radius: var(--border-radius-lg);
-  transition: all 0.2s ease;
-}
-
-.shuffle-button:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: rgba(108, 45, 199, 0.1);
-}
-
-/* FIX: Tracks container with better spacing and alignment */
-.tracks-container {
-  background-color: rgba(30, 30, 30, 0.8);
-  border-radius: var(--border-radius-md);
-  padding: var(--spacing-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(10px);
-}
-
-/* FIX: Fixed grid layout for consistent track display */
-.tracks-header {
-  display: grid;
-  grid-template-columns: 50px minmax(200px, 4fr) minmax(120px, 2fr) 80px;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: var(--font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: var(--spacing-sm);
-  align-items: center;
-}
-
-.tracks-list {
-  padding: var(--spacing-sm) 0;
-}
-
-/* FIX: Fixed grid layout for track items */
-.track-item {
-  display: grid;
-  grid-template-columns: 50px minmax(200px, 4fr) minmax(120px, 2fr) 80px;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: var(--border-radius-md);
-  transition: all 0.2s ease;
-  align-items: center;
+  justify-content: center;
   cursor: pointer;
+  transition: all 0.2s;
+  padding: 8px;
+}
+
+.shuffle-button svg, .more-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.shuffle-button:hover, .more-button:hover {
+  color: white;
+  transform: scale(1.1);
+}
+
+.shuffle-button.active {
+  color: #6c2dc7;
+}
+
+/* Spotify-style tracks container */
+.tracks-container {
+  background: transparent;
+  border-radius: 0;
+  padding: 0 32px;
+  margin-top: 24px;
+  box-shadow: none;
+  backdrop-filter: none;
+  border: none;
+}
+
+/* Updated grid to accommodate album artwork */
+.tracks-header, .track-item {
+  display: grid;
+  grid-template-columns: 50px 4fr 2fr 80px;
+  align-items: center;
+  padding: 0 16px;
+  gap: 16px;
+  height: 54px;
+}
+
+/* Ensure header is aligned with content */
+.tracks-header > div {
+  text-align: left;
+  justify-content: flex-start;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Fix duration header alignment */
+.tracks-header .track-duration {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+}
+
+/* Position the SVG clock icon */
+.tracks-header .track-duration svg {
+  width: 16px;
+  height: 16px;
+  margin-right: 0;
+  flex-shrink: 0;
   position: relative;
+  top: -1px; /* Slight adjustment for vertical alignment */
+}
+
+/* Spotify-style tracks header */
+.tracks-header {
+  height: 36px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+}
+
+/* Spotify-style track items */
+.track-item {
+  border-radius: 4px;
+  height: 54px;
+  margin-bottom: 8px;
+  position: relative;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
 }
 
 .track-item:hover {
   background-color: rgba(255, 255, 255, 0.1);
-  transform: translateX(3px);
 }
 
-.track-item:active {
+/* Currently playing track */
+.track-item.playing {
   background-color: rgba(108, 45, 199, 0.2);
 }
 
-/* FIX: Added play icon for track items */
-.track-item .play-icon {
-  position: absolute;
-  left: var(--spacing-md);
-  opacity: 0;
+.track-item.playing:hover {
+  background-color: rgba(108, 45, 199, 0.3);
+}
+
+/* Fixed track number with better styling */
+.track-number {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  font-weight: 400;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   transition: opacity 0.2s ease;
-  color: var(--color-primary);
+  justify-content: center;
+  width: 100%;
 }
 
 .track-item:hover .track-number {
   opacity: 0;
 }
 
+/* Fixed play icon positioning to exact 50% */
+.play-icon {
+  position: absolute;
+  left: 25px; /* Position at 50% of the track number column (50px width / 2) */
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%); /* Center the icon */
+}
+
 .track-item:hover .play-icon {
   opacity: 1;
 }
 
-.track-number {
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  transition: opacity 0.2s ease;
+.play-icon:hover {
+  transform: translateX(-50%) scale(1.2);
+  color: #6c2dc7;
 }
 
-/* FIX: Better track title container layout */
+/* Restructured title container with artwork */
 .track-title-container {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding-right: var(--spacing-md);
+  flex-direction: row;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  gap: 12px; /* Increased gap for artwork */
 }
 
-/* FIX: Improved track name visibility */
+/* New album artwork element */
+.track-artwork {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.track-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Container for track name and artist */
+.track-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Improved vertical rhythm for track name */
 .track-name {
-  color: var(--color-text-primary);
-  font-size: 16px;
+  color: white;
+  font-size: 14px;
+  font-weight: 400;
+  margin: 0;
+  padding: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color 0.2s ease;
-  font-weight: 500;
+  max-width: fit-content;
 }
 
-.track-item:hover .track-name {
-  color: var(--color-primary);
-}
-
+/* Fixed artist alignment */
 .track-artist {
-  color: var(--color-text-secondary);
-  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  margin: 0;
+  padding: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color 0.2s ease;
+  position: relative;
+  padding-left: 0;
 }
 
-.track-item:hover .track-artist {
-  color: var(--color-text-primary);
+/* Add artist separator dot */
+.track-artist::before {
+  content: '•';
+  margin: 0 5px;
 }
 
-/* FIX: Better track album display */
+/* Fixed album cell vertical alignment */
 .track-album {
-  color: var(--color-text-secondary);
+  height: 100%;
+  display: flex;
+  align-items: center;
   font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: var(--spacing-md);
+  padding: 0;
+  color: rgba(255, 255, 255, 0.7);
 }
 
-/* FIX: Better track duration display */
+/* Ensure all cells align properly */
+.track-item > div {
+  height: 50%; /* Changed from 50% to 100% */
+  display: flex;
+  align-items: center;
+}
+
+/* Fix track number and duration alignment */
+.track-number, .track-duration {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Ensure track duration cells are consistently aligned */
 .track-duration {
-  color: var(--color-text-secondary);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
   text-align: right;
-}
-
-/* Enhanced error container */
-.error-container {
-  display: flex;
-  flex-direction: column;
+  justify-content: flex-end;
   align-items: center;
+  display: flex;
+  white-space: nowrap;
+  width: 100%;
+  height: 100%;
+  padding-right: 8px; /* Add slight padding for better alignment */
+}
+
+/* Track duration with proper styling */
+.track-duration {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  text-align: right;
+  justify-content: flex-end;
+  display: flex;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Now playing animation */
+.now-playing-icon {
+  display: flex;
+  align-items: flex-end;
   justify-content: center;
-  padding: var(--spacing-xl);
-  text-align: center;
-  min-height: 400px;
-  background: linear-gradient(135deg, rgba(108, 45, 199, 0.05), rgba(0, 0, 0, 0.2));
-  border-radius: var(--border-radius-md);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  height: 14px;
+  width: 14px;
 }
 
-.error-container h2 {
-  margin-bottom: var(--spacing-md);
-  color: var(--color-text-primary);
-  font-size: 24px;
+.now-playing-icon .bar {
+  width: 2px;
+  height: 100%;
+  background-color: #6c2dc7;
+  margin: 0 1px;
+  border-radius: 1px;
+  animation: sound 0ms -800ms linear infinite alternate;
 }
 
-.error-container p {
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-lg);
-  max-width: 500px;
+.now-playing-icon .bar:nth-child(1) { 
+  animation-duration: 474ms;
+  height: 60%;
 }
 
-.error-container .btn {
-  padding: var(--spacing-md) var(--spacing-xl);
+.now-playing-icon .bar:nth-child(2) { 
+  animation-duration: 433ms; 
+  height: 100%;
 }
 
-/* Improved loading spinner */
+.now-playing-icon .bar:nth-child(3) { 
+  animation-duration: 407ms;
+  height: 80%;
+}
+
+@keyframes sound {
+  0% {
+    height: 30%;
+  }
+  100% {
+    height: 100%;
+  }
+}
+
+/* Spotify-style loading spinner */
 .loading-spinner {
-  margin: 100px auto;
   width: 50px;
   height: 50px;
-  border: 3px solid rgba(108, 45, 199, 0.3);
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #6c2dc7;
   border-radius: 50%;
-  border-top-color: var(--color-primary);
-  animation: spin 1s ease-in-out infinite;
+  animation: spin 1s linear infinite;
+  margin: 3rem auto;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* FIX: Separate card styling from detail view */
-.playlist-card {
-  background: linear-gradient(145deg, rgba(40, 40, 40, 0.6), rgba(20, 20, 20, 0.8));
-  border-radius: var(--border-radius-md);
-  padding: var(--spacing-md);
-  transition: all 0.3s ease;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+/* Error container styling */
+.error-container {
+  background-color: rgba(25, 25, 30, 0.6);
+  border-radius: 8px;
+  padding: 2rem;
+  text-align: center;
+  max-width: 500px;
+  margin: 3rem auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
-.playlist-card:hover {
-  background-color: rgba(50, 50, 50, 0.8);
-  transform: translateY(-5px);
-  box-shadow: 0 8px 20px rgba(108, 45, 199, 0.25);
-}
-
-.playlist-card:before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-hover));
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.3s ease;
-}
-
-.playlist-card:hover:before {
-  transform: scaleX(1);
-}
-
-/* FIX: Specific styling for playlist card cover */
-.playlist-card .playlist-cover {
-  position: relative;
-  width: 100%;
-  padding-bottom: 100%;
-  margin-bottom: var(--spacing-sm);
-  border-radius: var(--border-radius-md);
-  overflow: hidden;
-}
-
-.playlist-card .playlist-cover img {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s ease;
-}
-
-.playlist-card:hover .playlist-cover img {
-  transform: scale(1.05);
-}
-
-/* FIX: Specific styling for playlist card info */
-.playlist-card .playlist-info {
-  background: transparent;
-  backdrop-filter: none;
-  padding: var(--spacing-sm) 0;
-  margin: 0;
-}
-
-.playlist-card .playlist-title {
-  font-weight: var(--font-weight-bold);
-  font-size: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-  transition: color 0.2s ease;
-  text-shadow: none;
-}
-
-.playlist-card:hover .playlist-title {
-  color: var(--color-primary);
-}
-
-/* Responsive adjustments with more detail */
-@media (max-width: 992px) {
-  .playlist-header {
-    padding: var(--spacing-md);
+/* Mobile responsive design */
+@media (max-width: 1100px) {
+  .playlist-title {
+    font-size: 72px;
+    line-height: 72px;
   }
   
   .playlist-header .playlist-cover {
-    width: 180px;
-    height: 180px;
-    margin-right: var(--spacing-lg);
+    width: 192px !important;
+    padding-bottom: 192px !important;
+    min-width: 192px !important;
+    max-width: 192px !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
-  
+}
+
+@media (max-width: 1000px) {
   .playlist-title {
-    font-size: 36px;
+    font-size: 54px;
+  }
+}
+
+@media (max-width: 900px) {
+  .playlist-title {
+    font-size: 48px;
+    line-height: 48px;
   }
   
-  /* FIX: Adjust grid for better tablet display */
-  .tracks-header, .track-item {
-    grid-template-columns: 50px minmax(150px, 4fr) minmax(100px, 2fr) 70px;
+  .playlist-header .playlist-cover {
+    width: 192px !important;
+    padding-bottom: 192px !important;
+    min-width: 192px !important;
+    max-width: 192px !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
 }
 
 @media (max-width: 768px) {
   .playlist-header {
-    flex-direction: column;
+    padding: 80px 24px 24px;
     align-items: center;
-    text-align: center;
-    padding: var(--spacing-lg) var(--spacing-md);
   }
-  
+
   .playlist-header .playlist-cover {
-    width: 180px;
-    height: 180px;
-    margin-bottom: var(--spacing-md);
-    margin-right: 0;
-  }
-  
-  .playlist-info {
-    width: 100%;
-    align-items: center;
+    width: 192px !important;
+    padding-bottom: 192px !important;
+    flex: 0 0 192px !important;
+    margin-bottom: 24px;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
   
   .playlist-title {
-    font-size: 32px;
+    font-size: 42px;
   }
   
-  /* FIX: Hide album column on mobile */
-  .tracks-header, .track-item {
-    grid-template-columns: 40px minmax(150px, 1fr) 80px;
+  .playlist-info {
+    max-width: 100%;
   }
   
-  .track-album {
-    display: none;
+  .playlist-header {
+    flex-direction: column;
+    align-items: center;
+    padding: 80px 16px 24px;
+  }
+  
+  .playlist-header .playlist-cover {
+    width: 192px !important;
+    padding-bottom: 192px !important;
+    min-width: 192px !important;
+    max-width: 192px !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin-right: 0;
+    margin-bottom: 24px;
+  }
+  
+  .playlist-info {
+    max-width: 100%;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .playlist-info::before {
+    text-align: center;
+  }
+  
+  .playlist-title {
+    font-size: 42px;
+    line-height: 42px;
+    text-align: center;
+  }
+  
+  .playlist-description {
+    max-width: 100%;
+    text-align: center;
   }
   
   .playlist-meta {
     justify-content: center;
   }
   
-  .playlist-actions {
-    justify-content: center;
+  .tracks-container {
+    padding: 0 16px;
+  }
+  
+  .tracks-header, .track-item {
+    grid-template-columns: 40px 1fr 80px;
+  }
+  
+  .track-album {
+    display: none;
+  }
+  
+  /* Keep artwork a bit smaller on mobile */
+  .track-artwork {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+  
+  .playlist-actions-container {
+    padding: 16px;
+  }
+  
+  .play-button {
+    width: 48px;
+    height: 48px;
+    margin-right: 16px;
+  }
+
+  .play-icon {
+    left: 20px; /* Half of the 40px track number column at this breakpoint */
   }
 }
 
-@media (max-width: 576px) {
+@media (max-width: 480px) {
+  .playlist-header {
+    padding-top: 100px; /* More space at top for larger image */
+  }
+
   .playlist-header .playlist-cover {
-    width: 150px;
-    height: 150px;
+    width: 192px !important;
+    padding-bottom: 192px !important;
+    min-width: 192px !important;
+    max-width: 192px !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
   
   .playlist-title {
-    font-size: 24px;
+    font-size: 36px;
+    line-height: 36px;
   }
   
-  /* FIX: Simplified mobile layout */
   .tracks-header, .track-item {
-    grid-template-columns: 30px 1fr 60px;
-    padding: var(--spacing-sm) var(--spacing-sm);
-    gap: var(--spacing-sm);
+    grid-template-columns: 32px 1fr 60px;
+    gap: 8px;
+    padding: 0 8px;
   }
   
-  .track-name {
-    font-size: 14px;
+  .track-album {
+    display: none;
   }
   
-  .track-artist {
-    font-size: 12px;
+  .track-artwork {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+  
+  .track-title-container {
+    gap: 8px;
+  }
+  
+  .play-icon {
+    left: 16px; /* Half of the 32px track number column at this breakpoint */
   }
 }
