@@ -1,9 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { fetchPlaylists, fetchUserProfile } from '../api/spotify';
+import React, { useEffect, useState, useRef } from 'react';
+import { fetchPlaylists, fetchUserProfile, fetchPlaylistTracks } from '../api/spotify';
 import PlaylistCard from './Playlist/PlaylistCard';
 import SmartGrouping from './Playlist/SmartGrouping';
 import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
+
+// Define Track interface
+interface Track {
+    id: string;
+    name: string;
+    artists: Array<{ name: string }>;
+    album: {
+        name: string;
+        images?: Array<{ url: string }>;
+    };
+    duration_ms: number;
+    preview_url?: string;
+}
 
 const Dashboard: React.FC = () => {
     const [playlists, setPlaylists] = useState<any[]>([]);
@@ -12,6 +25,14 @@ const Dashboard: React.FC = () => {
     const [userName, setUserName] = useState<string>('Spotify User');
     const [userAvatar, setUserAvatar] = useState<string | null>(null);
     const [greeting, setGreeting] = useState<string>('Good morning');
+    // New state variables for playback
+    const [currentlyPlayingTrack, setCurrentlyPlayingTrack] = useState<Track | null>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentPlaylist, setCurrentPlaylist] = useState<any>(null);
+    const [playlistTracks, setPlaylistTracks] = useState<Array<{ track: Track }>>([]);
+    const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -61,13 +82,159 @@ const Dashboard: React.FC = () => {
         loadData();
     }, [navigate]);
 
+    // Initialize audio element
+    useEffect(() => {
+        if (!audioRef.current) {
+            audioRef.current = new Audio();
+            audioRef.current.addEventListener('ended', handleTrackEnded);
+            audioRef.current.addEventListener('error', handleAudioError);
+        }
+        
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.removeEventListener('ended', handleTrackEnded);
+                audioRef.current.removeEventListener('error', handleAudioError);
+                audioRef.current = null;
+            }
+        };
+    }, []);
+
     const handlePlaylistSelect = (playlist: any) => {
         console.log("Selected playlist:", playlist.id);
         setSelectedPlaylist(playlist);
         navigate(`/playlist/${playlist.id}`);
     };
 
+    const loadPlaylistTracks = async (playlist: any) => {
+        try {
+            const accessToken = localStorage.getItem('accessToken');
+            if (!accessToken) {
+                console.error('No access token found');
+                return;
+            }
+
+            const tracks = await fetchPlaylistTracks(accessToken, playlist.id);
+            if (tracks && tracks.items) {
+                setPlaylistTracks(tracks.items);
+                setCurrentPlaylist(playlist);
+                return tracks.items;
+            }
+        } catch (error) {
+            console.error('Error fetching playlist tracks:', error);
+        }
+        return [];
+    };
+
+    const handlePlayPlaylist = async (playlist: any) => {
+        // Load tracks first if needed
+        let tracks = playlistTracks;
+        if (!currentPlaylist || currentPlaylist.id !== playlist.id) {
+            tracks = await loadPlaylistTracks(playlist);
+        }
+
+        // Start playing the first track
+        if (tracks && tracks.length > 0) {
+            setCurrentTrackIndex(0);
+            handlePlayTrack(tracks[0].track);
+        }
+    };
+
+    const handlePlayTrack = (track: Track) => {
+        if (window.Spotify && window.Spotify.Player) {
+            console.log("Using Spotify Web Playback SDK to play track:", track.id);
+        } else {
+            if (!track.preview_url) {
+                console.log("No preview available for this track");
+                alert("No preview available for this track. Full playback requires Spotify Premium.");
+                return;
+            }
+            
+            if (currentlyPlayingTrack && currentlyPlayingTrack.id === track.id) {
+                // Toggle play/pause for current track
+                if (isPlaying) {
+                    audioRef.current?.pause();
+                } else {
+                    audioRef.current?.play();
+                }
+                setIsPlaying(!isPlaying);
+            } else {
+                // Play new track
+                if (audioRef.current) {
+                    audioRef.current.src = track.preview_url || '';
+                    audioRef.current.play()
+                        .then(() => {
+                            setIsPlaying(true);
+                            setCurrentlyPlayingTrack(track);
+                        })
+                        .catch(err => {
+                            console.error("Error playing track:", err);
+                            alert("Failed to play track preview. This may be due to browser autoplay restrictions.");
+                        });
+                }
+            }
+        }
+    };
+
+    const handleTrackEnded = () => {
+        if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex >= 0) {
+            // Play next track in playlist
+            const nextIndex = currentTrackIndex + 1;
+            if (nextIndex < playlistTracks.length) {
+                setCurrentTrackIndex(nextIndex);
+                handlePlayTrack(playlistTracks[nextIndex].track);
+            } else {
+                // End of playlist
+                setIsPlaying(false);
+                setCurrentlyPlayingTrack(null);
+                setCurrentTrackIndex(-1);
+            }
+        }
+    };
+
+    const handleAudioError = (e: Event) => {
+        console.error("Audio playback error:", e);
+        setIsPlaying(false);
+        alert("Error playing track. The preview may not be available.");
+    };
+
+    const handlePlayPauseClick = () => {
+        if (currentlyPlayingTrack) {
+            // Toggle play/pause
+            if (isPlaying) {
+                audioRef.current?.pause();
+            } else {
+                audioRef.current?.play();
+            }
+            setIsPlaying(!isPlaying);
+        } else if (playlists.length > 0) {
+            // Start playing the first playlist
+            handlePlayPlaylist(playlists[0]);
+        }
+    };
+
+    const handlePreviousTrack = () => {
+        if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex > 0) {
+            const prevIndex = currentTrackIndex - 1;
+            setCurrentTrackIndex(prevIndex);
+            handlePlayTrack(playlistTracks[prevIndex].track);
+        }
+    };
+
+    const handleNextTrack = () => {
+        if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex < playlistTracks.length - 1) {
+            const nextIndex = currentTrackIndex + 1;
+            setCurrentTrackIndex(nextIndex);
+            handlePlayTrack(playlistTracks[nextIndex].track);
+        }
+    };
+
     const handleLogout = () => {
+        // Stop any playing audio
+        if (audioRef.current) {
+            audioRef.current.pause();
+        }
+        
         // Clear all auth-related data from localStorage
         localStorage.removeItem('accessToken');
         localStorage.removeItem('tokenExpiration');
@@ -77,6 +244,8 @@ const Dashboard: React.FC = () => {
         setPlaylists([]);
         setUserName('Spotify User');
         setUserAvatar(null);
+        setCurrentlyPlayingTrack(null);
+        setIsPlaying(false);
         
         // Navigate to login page
         navigate('/login');
@@ -228,7 +397,13 @@ const Dashboard: React.FC = () => {
                                     alt={playlist.name} 
                                 />
                                 <span>{playlist.name}</span>
-                                <div className="play-icon">
+                                <div 
+                                    className="play-icon"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handlePlayPlaylist(playlist);
+                                    }}
+                                >
                                     <svg viewBox="0 0 24 24" width="24" height="24">
                                         <path fill="white" d="M8 5.14v14l11-7-11-7z"/>
                                     </svg>
@@ -237,7 +412,11 @@ const Dashboard: React.FC = () => {
                         ))}
                     </div>
                     
-                    <SmartGrouping />
+                    <SmartGrouping 
+                        onPlayTrack={handlePlayTrack}
+                        currentlyPlayingTrack={currentlyPlayingTrack?.id}
+                        isPlaying={isPlaying}
+                    />
                     
                     <div className="section-header">
                         <h2>Your Playlists</h2>
@@ -250,6 +429,7 @@ const Dashboard: React.FC = () => {
                                 key={playlist.id}
                                 playlist={playlist}
                                 onSelect={() => handlePlaylistSelect(playlist)}
+                                onPlay={() => handlePlayPlaylist(playlist)}
                             />
                         ))}
                     </div>
@@ -261,11 +441,38 @@ const Dashboard: React.FC = () => {
                 <div className="now-playing">
                     <div className="track-info">
                         <div className="track-image">
-                            <img src="https://via.placeholder.com/56?text=Track" alt="Current track" />
+                            {currentlyPlayingTrack ? (
+                                <img 
+                                    src={
+                                        currentlyPlayingTrack.album && 
+                                        currentlyPlayingTrack.album.images && 
+                                        currentlyPlayingTrack.album.images.length > 0 && 
+                                        currentlyPlayingTrack.album.images[0].url
+                                            ? currentlyPlayingTrack.album.images[0].url
+                                            : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                                currentlyPlayingTrack.artists && currentlyPlayingTrack.artists.length > 0 
+                                                    ? currentlyPlayingTrack.artists[0].name 
+                                                    : currentlyPlayingTrack.name
+                                              )}&background=6c2dc7&color=fff&size=56&bold=true&rounded=true`
+                                    } 
+                                    alt={currentlyPlayingTrack.album?.name || "Album artwork"} 
+                                />
+                            ) : (
+                                <img 
+                                    src="https://via.placeholder.com/56/6c2dc7/ffffff?text=♪" 
+                                    alt="No track selected" 
+                                />
+                            )}
                         </div>
                         <div className="track-details">
-                            <div className="track-name">Select a track</div>
-                            <div className="track-artist">to start playing</div>
+                            <div className="track-name">
+                                {currentlyPlayingTrack ? currentlyPlayingTrack.name : 'Select a track'}
+                            </div>
+                            <div className="track-artist">
+                                {currentlyPlayingTrack ? 
+                                    currentlyPlayingTrack.artists.map(artist => artist.name).join(', ') : 
+                                    'to start playing'}
+                            </div>
                         </div>
                         <button className="like-button">
                             <svg viewBox="0 0 16 16" width="16" height="16">
@@ -282,17 +489,24 @@ const Dashboard: React.FC = () => {
                                 <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922zM.391 3.5H0V2h.391c1.109 0 2.16.49 2.873 1.34L4.89 5.277l-.979 1.167-1.796-2.14A2.25 2.25 0 00.39 3.5z"/>
                             </svg>
                         </button>
-                        <button className="control-button">
+                        <button className="control-button" onClick={handlePreviousTrack}>
                             <svg viewBox="0 0 16 16" width="16" height="16">
                                 <path fill="currentColor" d="M3.3 1a.7.7 0 01.7.7v5.15l9.95-5.744a.7.7 0 011.05.606v12.575a.7.7 0 01-1.05.607L4 9.149V14.3a.7.7 0 01-.7.7H1.7a.7.7 0 01-.7-.7V1.7a.7.7 0 01.7-.7h1.6z"/>
                             </svg>
                         </button>
-                        <button className="control-button play-pause">
-                            <svg viewBox="0 0 16 16" width="32" height="32">
-                                <path fill="currentColor" d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z"/>
-                            </svg>
+                        <button className="control-button play-pause" onClick={handlePlayPauseClick}>
+                            {isPlaying ? (
+                                <svg viewBox="0 0 16 16" width="32" height="32">
+                                    <rect x="3" y="2" width="4" height="12" fill="currentColor"/>
+                                    <rect x="9" y="2" width="4" height="12" fill="currentColor"/>
+                                </svg>
+                            ) : (
+                                <svg viewBox="0 0 16 16" width="32" height="32">
+                                    <path fill="currentColor" d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z"/>
+                                </svg>
+                            )}
                         </button>
-                        <button className="control-button">
+                        <button className="control-button" onClick={handleNextTrack}>
                             <svg viewBox="0 0 16 16" width="16" height="16">
                                 <path fill="currentColor" d="M12.7 1a.7.7 0 00-.7.7v5.15L2.05 1.107A.7.7 0 001 1.712v12.575a.7.7 0 001.05.607L12 9.149V14.3a.7.7 0 00.7.7h1.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-1.6z"/>
                             </svg>
@@ -310,7 +524,11 @@ const Dashboard: React.FC = () => {
                                 <div className="progress-bar-fill"></div>
                             </div>
                         </div>
-                        <span className="playback-time">0:00</span>
+                        <span className="playback-time">
+                            {currentlyPlayingTrack ? 
+                                formatDuration(currentlyPlayingTrack.duration_ms) : 
+                                '0:00'}
+                        </span>
                     </div>
                 </div>
                 
@@ -346,6 +564,13 @@ const Dashboard: React.FC = () => {
             </footer>
         </div>
     );
+};
+
+// Helper function for formatting duration
+const formatDuration = (ms: number): string => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = ((ms % 60000) / 1000).toFixed(0);
+    return `${minutes}:${parseInt(seconds) < 10 ? '0' : ''}${seconds}`;
 };
 
 export default Dashboard;

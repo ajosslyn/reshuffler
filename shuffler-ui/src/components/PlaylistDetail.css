@@ -335,26 +335,42 @@
   opacity: 0;
 }
 
-/* Fixed play icon positioning to exact 50% */
+/* Updated circular play icon for playlist table */
 .play-icon {
   position: absolute;
-  left: 25px; /* Position at 50% of the track number column (50px width / 2) */
-  opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  color: white;
+  left: 25px; /* Center within track number column */
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  background-color: #6c2dc7;
+  border-radius: 50%; /* Perfect circle */
   display: flex;
   align-items: center;
   justify-content: center;
-  transform: translateX(-50%); /* Center the icon */
+  opacity: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  z-index: 5;
 }
 
+/* Show play icon on hover with improved transition */
 .track-item:hover .play-icon {
   opacity: 1;
+  transform: translate(-50%, -50%) scale(1.05);
 }
 
-.play-icon:hover {
-  transform: translateX(-50%) scale(1.2);
-  color: #6c2dc7;
+/* Center the SVG properly inside the circular button */
+.play-icon svg {
+  position: relative;
+  left: 1px; /* Slight adjustment for optical centering */
+  width: 16px;
+  height: 16px;
+}
+
+/* Currently playing track styling */
+.track-item.playing .play-icon {
+  opacity: 1;
 }
 
 /* Restructured title container with artwork */

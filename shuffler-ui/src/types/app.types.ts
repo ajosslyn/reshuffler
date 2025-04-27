@@ -2,11 +2,12 @@ export interface TrackMetadata {
     id: string;
     name: string;
     artist: string;
-    genre: string;
+    genre?: string;
+    language?: string;
     energy: number;
     tempo: number;
-    language?: string;
-    title?: string;
+    preview_url?: string; // Added for playback support
+    duration_ms?: number; // Added for playback support
 }
 
 export interface Playlist {

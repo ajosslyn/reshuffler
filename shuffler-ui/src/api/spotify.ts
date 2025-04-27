@@ -153,3 +153,24 @@ export const fetchUserProfile = async (accessToken: string) => {
     throw error;
   }
 };
+
+export const fetchTrackPreviewURL = async (accessToken: string, trackId: string): Promise<string | null> => {
+  try {
+    const response = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.preview_url;
+  } catch (error) {
+    console.error('Error fetching track preview URL:', error);
+    return null;
+  }
+};

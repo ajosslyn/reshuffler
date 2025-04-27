@@ -6,7 +6,18 @@ import { estimateAudioFeatures } from '../../utils/audioFeatureEstimator';
 import { TrackMetadata } from '../../types/app.types';
 import './SmartGrouping.css';
 
-const SmartGrouping: React.FC = () => {
+// Add these props for playback functionality
+interface SmartGroupingProps {
+  onPlayTrack?: (track: any) => void;
+  currentlyPlayingTrack?: string | null;
+  isPlaying?: boolean;
+}
+
+const SmartGrouping: React.FC<SmartGroupingProps> = ({ 
+  onPlayTrack, 
+  currentlyPlayingTrack, 
+  isPlaying 
+}) => {
     const [playlists, setPlaylists] = useState<any[]>([]);
     const [tracks, setTracks] = useState<TrackMetadata[]>([]);
     const [groupedTracks, setGroupedTracks] = useState<Record<string, TrackMetadata[]>>({});
@@ -196,6 +207,32 @@ const SmartGrouping: React.FC = () => {
         fetchUserPlaylists();
     };
 
+    // Add a function to handle track play
+    const handlePlayTrack = (track: TrackMetadata) => {
+        if (onPlayTrack) {
+            // Get a unique avatar based on artist and track name for better recognition
+            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.artist + ' ' + track.name)}&background=6c2dc7&color=fff&size=300&bold=true&rounded=true`;
+            
+            // Convert TrackMetadata to format expected by Dashboard's handlePlayTrack
+            const fullTrack = {
+                id: track.id,
+                name: track.name,
+                artists: [{ name: track.artist }],
+                album: {
+                    name: track.genre || "Unknown Album",
+                    images: [{ url: avatarUrl }]
+                },
+                duration_ms: 30000, // Default 30 seconds for preview
+                preview_url: track.preview_url || `https://p.scdn.co/mp3-preview/${track.id}`
+            };
+            
+            // Debug the track data
+            console.log("Playing track with image:", fullTrack.album.images[0].url);
+            
+            onPlayTrack(fullTrack);
+        }
+    };
+
     return (
         <div className="smart-grouping">
             <div className="smart-grouping-header">
@@ -261,13 +298,34 @@ const SmartGrouping: React.FC = () => {
                                 </div>
                                 <ul className="track-list">
                                     {groupTracks.slice(0, 20).map((track, index) => (
-                                        <li key={`${track.id}-${index}`} className="track-item">
-                                            <span className="track-number">{index + 1}</span>
-                                            <span className="play-icon">
-                                                <svg viewBox="0 0 24 24" width="16" height="16">
-                                                    <path fill="currentColor" d="M8 5.14v14l11-7-11-7z" />
-                                                </svg>
-                                            </span>
+                                        <li 
+                                            key={`${track.id}-${index}`} 
+                                            className={`track-item ${currentlyPlayingTrack === track.id ? 'playing' : ''}`}
+                                            onClick={() => handlePlayTrack(track)}
+                                        >
+                                            <div className="track-number">
+                                                {currentlyPlayingTrack === track.id && isPlaying ? (
+                                                    <span className="now-playing-icon">
+                                                        <span className="bar"></span>
+                                                        <span className="bar"></span>
+                                                        <span className="bar"></span>
+                                                    </span>
+                                                ) : (
+                                                    index + 1
+                                                )}
+                                            </div>
+                                            <div className="play-icon">
+                                                {currentlyPlayingTrack === track.id && isPlaying ? (
+                                                    <svg viewBox="0 0 24 24" width="16" height="16">
+                                                        <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+                                                        <rect x="14" y="4" width="4" height="16" fill="currentColor" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg viewBox="0 0 24 24" width="16" height="16">
+                                                        <path fill="currentColor" d="M8 5.14v14l11-7-11-7z" />
+                                                    </svg>
+                                                )}
+                                            </div>
                                             <span className="track-title">{track.name}</span>
                                             <span className="track-artist">{track.artist}</span>
                                         </li>
