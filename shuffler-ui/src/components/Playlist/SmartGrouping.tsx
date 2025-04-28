@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { fetchPlaylists, fetchPlaylistTracks } from '../../api/spotify';
+import { getUserPlaylists, getPlaylistTracks } from '../../api/spotifyService';
 import { groupTracks } from '../../utils/groupingAlgorithm';
 import { groupTracksByVibe } from '../../utils/vibeAnalyzer';
 import { estimateAudioFeatures } from '../../utils/audioFeatureEstimator';
@@ -37,111 +37,63 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
     }, []);
 
     // Fetch playlists with error handling
-    const fetchUserPlaylists = useCallback(async () => {
-        if (!accessToken) return;
-
+    const fetchUserPlaylists = async () => {
         try {
             setLoading(true);
-            setError(null);
-
-            const data = await fetchPlaylists(accessToken);
-
-            if (!data || !Array.isArray(data)) {
-                throw new Error('Invalid playlist data received');
+            // Use the updated service function
+            const playlistsData = await getUserPlaylists(accessToken);
+            const selectedPlaylist = playlistsData.items[0]; // or however you select a playlist
+            
+            if (selectedPlaylist) {
+              // Use the updated service function
+              const tracksData = await getPlaylistTracks(accessToken, selectedPlaylist.id);
+              processTracksData(tracksData);
             }
-
-            setPlaylists(data);
-
-            if (data.length === 0) {
-                console.warn('No playlists found for user');
-            }
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch playlists';
-            console.error('Error fetching playlists:', err);
-            setError(`Failed to load playlists: ${errorMessage}`);
-            setPlaylists([]);
+            
+            setLoading(false);
+        } catch (error) {
+            setError('Failed to load playlists or tracks');
+            setLoading(false);
+            console.error(error);
         }
-    }, [accessToken]);
+    };
+
+    // Extract tracks from playlists with enhanced error handling and feature estimation
+    const processTracksData = (tracksData: any) => {
+        if (tracksData?.items) {
+            tracksData.items.forEach((item: any) => {
+                if (item?.track) {
+                    // Create basic track
+                    const track = {
+                        id: item.track.id,
+                        name: item.track.name || 'Unknown Track',
+                        artist: item.track.artists?.[0]?.name || 'Unknown Artist',
+                        genre: 'Unknown',
+                        language: 'Unknown',
+                        energy: 0.5, // Default
+                        tempo: 120, // Default
+                    };
+
+                    // Apply audio feature estimation
+                    const estimatedFeatures = estimateAudioFeatures(track);
+
+                    // Create enhanced track with estimated features
+                    setTracks(prevTracks => [
+                      ...prevTracks,
+                      {
+                        ...track,
+                        energy: estimatedFeatures.energy,
+                        tempo: estimatedFeatures.tempo
+                      }
+                    ]);
+                }
+            });
+        }
+    };
 
     useEffect(() => {
         fetchUserPlaylists();
     }, [fetchUserPlaylists]);
-
-    // Extract tracks from playlists with enhanced error handling and feature estimation
-    useEffect(() => {
-        const loadAllTracks = async () => {
-            if (playlists.length === 0 || !accessToken) {
-                setLoading(false);
-                return;
-            }
-
-            try {
-                setError(null);
-                const allTracks: TrackMetadata[] = [];
-                let errorCount = 0;
-
-                // Process playlists in chunks to avoid overloading the API
-                for (const playlist of playlists.slice(0, 10)) { // Limit to first 10 playlists for performance
-                    try {
-                        const tracksData = await fetchPlaylistTracks(accessToken, playlist.id);
-
-                        if (tracksData?.items) {
-                            tracksData.items.forEach((item: any) => {
-                                if (item?.track) {
-                                    // Create basic track
-                                    const track = {
-                                        id: item.track.id,
-                                        name: item.track.name || 'Unknown Track',
-                                        artist: item.track.artists?.[0]?.name || 'Unknown Artist',
-                                        genre: 'Unknown',
-                                        language: 'Unknown',
-                                        energy: 0.5, // Default
-                                        tempo: 120, // Default
-                                    };
-
-                                    // Apply audio feature estimation
-                                    const estimatedFeatures = estimateAudioFeatures(track);
-
-                                    // Create enhanced track with estimated features
-                                    allTracks.push({
-                                        ...track,
-                                        energy: estimatedFeatures.energy,
-                                        tempo: estimatedFeatures.tempo
-                                    });
-                                }
-                            });
-                        }
-                    } catch (err) {
-                        console.error(`Error fetching tracks for playlist ${playlist.id}:`, err);
-                        errorCount++;
-                        // Continue with other playlists even if one fails
-                    }
-                }
-
-                console.log("Extracted all tracks with estimated features:", allTracks.length, allTracks[0] || 'No tracks found');
-
-                if (allTracks.length === 0) {
-                    if (errorCount > 0) {
-                        setError(`Failed to load tracks from ${errorCount} playlists. Please try again later.`);
-                    } else {
-                        setError('No tracks found in your playlists.');
-                    }
-                } else if (errorCount > 0) {
-                    console.warn(`Loaded tracks with ${errorCount} playlist errors`);
-                }
-
-                setTracks(allTracks);
-                setLoading(false); // Set loading to false here since we're done processing
-            } catch (err) {
-                console.error("Fatal error loading tracks:", err);
-                setError('Failed to load your tracks. Please try again later.');
-                setTracks([]);
-                setLoading(false);
-            }
-        };
-
-        loadAllTracks();
-    }, [playlists, accessToken]);
 
     // Add this function to memoize track processing
     const processedTracks = useMemo(() => {

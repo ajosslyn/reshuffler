@@ -1,0 +1,9 @@
+{
+  "name": "music-shuffler",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd shuffler-ui && npm install && npm run build",
+    "deploy": "vercel --prod"
+  }
+}
