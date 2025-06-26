@@ -1,0 +1,80 @@
+.login-page {
+  background: var(--color-background);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.login-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: #1e1033; /* Dark purple background */
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.login-container h1 {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  color: #e4d3ff; /* Light purple text for heading */
+  text-shadow: 0 0 10px rgba(186, 104, 255, 0.3);
+}
+
+.login-container p {
+  font-size: 1.2rem;
+  margin-bottom: 2rem;
+  color: #c9b6e4; /* Muted light purple for description */
+}
+
+.login-button {
+  background-color: #8a2be2; /* Vibrant purple */
+  color: white;
+  border: none;
+  border-radius: 30px;
+  padding: 12px 30px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(138, 43, 226, 0.3);
+}
+
+.login-button:hover {
+  background-color: #9d4edd; /* Lighter purple on hover */
+  transform: translateY(-2px);
+  box-shadow: 0 6px 10px rgba(157, 78, 221, 0.4);
+}
+
+.login-button:active {
+  transform: translateY(1px);
+}
+
+/* Optional: Add a purple gradient overlay for more depth */
+.login-container::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, rgba(125, 46, 185, 0.2) 0%, rgba(118, 75, 162, 0.1) 100%);
+  pointer-events: none;
+}
+
+/* Optional: Add a subtle pulse animation to the button */
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(138, 43, 226, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(138, 43, 226, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(138, 43, 226, 0); }
+}
+
+.login-button {
+  animation: pulse 2s infinite;
+}

@@ -1,0 +1,21 @@
+{
+    "name": "music-shuffler",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "build": "cd shuffler-ui && npm install && npm run build",
+        "vercel-build": "cd shuffler-ui && cross-env NODE_OPTIONS=--openssl-legacy-provider npm install --legacy-peer-deps && cross-env NODE_OPTIONS=--openssl-legacy-provider CI=false npm run build",
+        "start": "cd shuffler-ui && npm start",
+        "install:ui": "cd shuffler-ui && npm install"
+    },
+    "engines": {
+        "node": "22.x"
+    },
+    "dependencies": {
+        "body-parser": "^2.2.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.5.0",
+        "express": "^5.1.0",
+        "spotify-web-api-node": "^5.0.2"
+    }
+}
