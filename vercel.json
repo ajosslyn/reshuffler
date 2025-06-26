@@ -1,29 +1,34 @@
 {
-    "version": 2,
-    "builds": [
-      {
-        "src": "shuffler-ui/package.json",
-        "use": "@vercel/static-build",
-        "config": {
-          "distDir": "build"
-        }
-      },
-      {
-        "src": "api/**/*.js",
-        "use": "@vercel/node"
+  "version": 2,
+  "builds": [
+    {
+      "src": "shuffler-ui/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build",
+        "buildCommand": "NODE_OPTIONS=--openssl-legacy-provider npm run vercel-build"
       }
-    ],
-    "routes": [
-      {
-        "src": "/api/(.*)",
-        "dest": "/api/$1"
-      },
-      {
-        "src": "/(.*)",
-        "dest": "/shuffler-ui/build/index.html"
-      }
-    ],
-    "env": {
-      "NODE_ENV": "production"
+    },
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
     }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/shuffler-ui/build/index.html"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "CI": "false",
+    "NODE_OPTIONS": "--openssl-legacy-provider",
+    "SPOTIFY_CLIENT_ID": "716b1a6a140a4fb3ab65e3bbfb9366c5",
+    "SPOTIFY_CLIENT_SECRET": "e07175ac8b3f4ceaa0fa167120ec0f8f"
   }
+}

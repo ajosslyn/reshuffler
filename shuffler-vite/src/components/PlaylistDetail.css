@@ -1,0 +1,531 @@
+/* Mobile Responsive Styles for PlaylistDetail */
+
+/* Base container styles */
+.playlist-detail-container {
+  padding: 24px 32px 120px;
+  color: white;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Back button styling */
+.back-button {
+  background: rgba(0, 0, 0, 0.3);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.back-button:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Playlist header section */
+.playlist-header {
+  display: flex;
+  margin-bottom: 24px;
+  align-items: flex-end;
+}
+
+.playlist-cover {
+  width: 232px;
+  height: 232px;
+  margin-right: 24px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 60px rgba(0, 0, 0, 0.5);
+}
+
+.playlist-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.playlist-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.playlist-type {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.playlist-title {
+  font-size: 48px;
+  font-weight: 900;
+  margin: 0 0 8px;
+  line-height: 1.2;
+}
+
+.playlist-description {
+  color: #b3b3b3;
+  font-size: 14px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 42px;
+}
+
+.playlist-meta {
+  display: flex;
+  font-size: 14px;
+  color: #b3b3b3;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.playlist-meta span:not(:last-child)::after {
+  content: "•";
+  margin: 0 4px;
+}
+
+/* Actions container */
+.playlist-actions-container {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.play-button {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #6c2dc7;
+  color: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s, background-color 0.2s;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.play-button:hover {
+  transform: scale(1.05);
+  background-color: #7c3ad9;
+}
+
+.shuffle-button {
+  background: transparent;
+  border: none;
+  color: #b3b3b3;
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 8px;
+  border-radius: 50%;
+}
+
+.shuffle-button:hover {
+  color: white;
+}
+
+.shuffle-button.active {
+  color: #6c2dc7;
+}
+
+/* Tracks section */
+.playlist-tracks {
+  width: 100%;
+}
+
+.tracks-header {
+  display: grid;
+  grid-template-columns: 40px 4fr 3fr 1fr;
+  padding: 0 16px;
+  color: #b3b3b3;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.tracks-list {
+  margin-bottom: 20px;
+}
+
+.track-item {
+  display: grid;
+  grid-template-columns: 40px 4fr 3fr 1fr;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  align-items: center;
+}
+
+.track-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.track-item.active {
+  background-color: rgba(108, 45, 199, 0.2);
+}
+
+.track-number {
+  text-align: center;
+  color: #b3b3b3;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.track-title-section {
+  display: flex;
+  align-items: center;
+  position: relative;
+  min-width: 0;
+}
+
+.track-image {
+  width: 40px;
+  height: 40px;
+  margin-right: 16px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.track-info {
+  min-width: 0;
+  overflow: hidden;
+  margin-left: 8px; /* Add margin to push the text away from the play button */
+}
+
+.track-name {
+  font-size: 16px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-artist {
+  font-size: 14px;
+  color: #b3b3b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0; /* Remove margin */
+}
+
+.track-album {
+  color: #b3b3b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+}
+
+.track-duration {
+  text-align: right;
+  color: #b3b3b3;
+  font-size: 14px;
+}
+
+/* Updated play icon to match Spotify's design */
+.play-icon {
+  position: absolute;
+  left: 14px; /* Center over album art */
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+  background-color: rgba(0, 0, 0, 0.7);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  z-index: 2;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Track hover behavior */
+.track-item:hover .play-icon {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+/* Currently playing state */
+.track-item.active .play-icon {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+  background-color: #6c2dc7;
+}
+
+/* Improve icon appearance */
+.play-icon svg {
+  width: 24px;
+  height: 24px;
+  margin-left: 2px; /* Center the play triangle visually */
+}
+
+/* Hide track number on hover */
+.track-item:hover .track-number {
+  opacity: 0;
+}
+
+/* Shift track image styles */
+.track-title-section {
+  position: relative;
+}
+
+.track-image {
+  position: relative;
+  z-index: 1;
+  transition: filter 0.2s ease;
+}
+
+.track-item:hover .track-image {
+  filter: brightness(0.7);
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+  .play-icon {
+    width: 32px;
+    height: 32px;
+    left: 8px;
+  }
+  
+  .play-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .playlist-detail-container {
+    padding: 16px 16px 90px;
+  }
+  
+  /* Mobile header - stack cover and info vertically */
+  .playlist-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  
+  .playlist-cover {
+    width: 192px;
+    height: 192px;
+    margin-right: 0;
+    margin-bottom: 16px;
+  }
+  
+  .playlist-title {
+    font-size: 24px;
+    margin: 8px 0;
+  }
+  
+  .playlist-description {
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  
+  .playlist-meta {
+    justify-content: center;
+    font-size: 12px;
+  }
+  
+  /* Mobile actions */
+  .playlist-actions-container {
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  
+  .play-button {
+    width: 48px;
+    height: 48px;
+  }
+  
+  /* Mobile tracks list - remove album column */
+  .tracks-header, .track-item {
+    grid-template-columns: 40px 1fr 60px;
+  }
+  
+  .track-album {
+    display: none;
+  }
+  
+  .track-title-section {
+    padding-right: 8px;
+  }
+  
+  .track-image {
+    width: 32px;
+    height: 32px;
+    margin-right: 12px;
+  }
+  
+  .track-name {
+    font-size: 14px;
+  }
+  
+  .track-artist {
+    font-size: 12px;
+  }
+  
+  /* Fix back button position for mobile */
+  .back-button {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    margin-bottom: 0;
+    background: rgba(0,0,0,0.7);
+  }
+  
+  /* Add spacing at top to account for fixed back button */
+  .playlist-cover {
+    margin-top: 24px;
+  }
+  
+  /* Enhance tap targets */
+  .track-item {
+    padding: 12px 8px;
+    margin-bottom: 4px;
+  }
+}
+
+/* Small mobile optimization */
+@media (max-width: 480px) {
+  .playlist-cover {
+    width: 160px;
+    height: 160px;
+  }
+  
+  .playlist-title {
+    font-size: 22px;
+  }
+  
+  .track-item {
+    grid-template-columns: 32px 1fr 54px;
+  }
+}
+
+/* Accessibility - Add focus styles */
+.track-item:focus {
+  outline: 2px solid #6c2dc7;
+}
+
+/* Add loading skeleton animation */
+@keyframes loadingPulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.6; }
+}
+
+.loading-skeleton {
+  background: #333;
+  border-radius: 4px;
+  animation: loadingPulse 1.5s infinite;
+}
+
+/* Dark/light mode optimization */
+@media (prefers-color-scheme: dark) {
+  .playlist-detail-container {
+    background-color: #121212;
+  }
+}
+
+/* Add these loading skeleton styles at the end of your CSS */
+
+/* Loading skeleton styles */
+.playlist-detail-skeleton {
+  width: 100%;
+}
+
+.playlist-header-skeleton {
+  display: flex;
+  margin-bottom: 32px;
+  align-items: flex-end;
+}
+
+.playlist-cover-skeleton {
+  width: 232px;
+  height: 232px;
+  margin-right: 24px;
+}
+
+.playlist-info-skeleton {
+  flex: 1;
+}
+
+.playlist-title-skeleton {
+  height: 60px;
+  width: 70%;
+  margin-bottom: 24px;
+}
+
+.playlist-meta-skeleton {
+  height: 20px;
+  width: 40%;
+}
+
+.track-skeleton {
+  height: 56px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+/* Mobile adjustments for loading skeleton */
+@media (max-width: 768px) {
+  .playlist-header-skeleton {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .playlist-cover-skeleton {
+    width: 192px;
+    height: 192px;
+    margin-right: 0;
+    margin-bottom: 16px;
+  }
+  
+  .playlist-title-skeleton {
+    height: 32px;
+    width: 100%;
+  }
+  
+  .playlist-meta-skeleton {
+    height: 16px;
+    width: 80%;
+    margin: 0 auto;
+  }
+}
+
+/* Add these styles to your existing CSS */
+/* Add these styles for the premium badge */
+.premium-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #1DB954, #006D3B);
+  color: white;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  margin-left: 10px;
+}
+
+.premium-badge svg {
+  margin-right: 2px;
+}

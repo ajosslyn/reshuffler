@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "lib": ["DOM", "ESNext"] // Add DOM here for config files
+  },
+  "include": ["vite.config.ts"]
+}
