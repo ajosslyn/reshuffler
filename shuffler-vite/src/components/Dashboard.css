@@ -157,6 +157,18 @@
   animation: fadeIn 0.3s ease-out;
 }
 
+/* Mobile positioning for premium badge */
+@media (max-width: 768px) {
+  .premium-badge {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    right: auto !important;
+    z-index: 1000 !important;
+  }
+}
+
 .preview-badge {
   position: fixed;
   top: 16px;
@@ -171,6 +183,18 @@
   padding: 6px 10px;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Mobile positioning for preview badge */
+@media (max-width: 768px) {
+  .preview-badge {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    right: auto !important;
+    z-index: 1000 !important;
+  }
 }
 
 .device-reconnecting {

@@ -7,6 +7,8 @@ export interface Track {
     tempo: number;
     language: string;
     duration: number; // in seconds
+    playlistName?: string; // Optional playlist name for multi-playlist grouping
+    playlistId?: string; // Optional playlist ID for multi-playlist grouping
 }
 
 export interface Playlist {

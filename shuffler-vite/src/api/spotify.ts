@@ -210,25 +210,50 @@ export const transferPlaybackToDevice = async (deviceId: string) => {
     throw new Error('No access token available');
   }
   
-  const response = await fetch('https://api.spotify.com/v1/me/player', {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
-    },
-    body: JSON.stringify({
-      device_ids: [deviceId],
-      play: false  // Set to false to avoid auto-play
-    })
-  });
-  
-  // 204 No Content is a success response for this endpoint
-  if (response.status !== 204 && !response.ok) {
-    const errorData = await response.json();
-    throw new Error(`Failed to transfer playback: ${errorData.error?.message || 'Unknown error'}`);
+  try {
+    // First check if device still exists
+    const devicesResponse = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    if (devicesResponse.ok) {
+      const devicesData = await devicesResponse.json();
+      const targetDevice = devicesData.devices?.find((device: any) => device.id === deviceId);
+      
+      if (!targetDevice) {
+        throw new Error('device_not_found: Device not found in available devices');
+      }
+    }
+    
+    const response = await fetch('https://api.spotify.com/v1/me/player', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        device_ids: [deviceId],
+        play: false  // Set to false to avoid auto-play
+      })
+    });
+    
+    // 204 No Content is a success response for this endpoint
+    if (response.status !== 204 && !response.ok) {
+      if (response.status === 404) {
+        throw new Error('device_not_found: Device not found or expired');
+      }
+      
+      const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to transfer playback: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in transferPlaybackToDevice:', error);
+    throw error;
   }
-  
-  return true;
 };
 
 export const playTrackOnDevice = async (trackUri: string, deviceId: string) => {
@@ -238,23 +263,63 @@ export const playTrackOnDevice = async (trackUri: string, deviceId: string) => {
     throw new Error('No access token available');
   }
   
-  const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${accessToken}`
-    },
-    body: JSON.stringify({
-      uris: [trackUri]
-    })
-  });
-  
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(`Failed to play track: ${errorData.error?.message || 'Unknown error'}`);
+  try {
+    // First verify device is available
+    const devicesResponse = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    if (devicesResponse.ok) {
+      const devicesData = await devicesResponse.json();
+      const targetDevice = devicesData.devices?.find((device: any) => device.id === deviceId);
+      
+      if (!targetDevice) {
+        throw new Error('device_not_found: Device not found in available devices');
+      }
+      
+      // If device is not active, try to transfer playback first
+      if (!targetDevice.is_active) {
+        console.log('Device is not active, transferring playback first...');
+        await transferPlaybackToDevice(deviceId);
+        // Wait for transfer to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        uris: [trackUri]
+      })
+    });
+    
+    if (!response.ok) {
+      // Handle specific error codes
+      if (response.status === 404) {
+        throw new Error('device_not_found: Playback device not found or expired');
+      }
+      if (response.status === 403) {
+        throw new Error('forbidden: Premium subscription required for this feature');
+      }
+      if (response.status === 429) {
+        throw new Error('rate_limit: Too many requests, please try again later');
+      }
+      
+      const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
+      throw new Error(`Failed to play track: ${errorData.error?.message || response.statusText}`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in playTrackOnDevice:', error);
+    throw error;
   }
-  
-  return true;
 };
 
 // Add this function to your spotify.ts file
@@ -311,5 +376,44 @@ export const playPlaylistOnDevice = async (playlistUri: string, deviceId: string
   } catch (error) {
     console.error('Error in playPlaylistOnDevice:', error);
     throw error;
+  }
+};
+
+// Add this function to check device health
+export const checkDeviceHealth = async (deviceId: string) => {
+  const accessToken = localStorage.getItem('accessToken');
+  
+  if (!accessToken) {
+    throw new Error('No access token available');
+  }
+  
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/player/devices', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch devices: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const device = data.devices?.find((d: any) => d.id === deviceId);
+    
+    return {
+      exists: !!device,
+      isActive: device?.is_active || false,
+      name: device?.name || 'Unknown',
+      type: device?.type || 'Unknown'
+    };
+  } catch (error) {
+    console.error('Error checking device health:', error);
+    return {
+      exists: false,
+      isActive: false,
+      name: 'Unknown',
+      type: 'Unknown'
+    };
   }
 };

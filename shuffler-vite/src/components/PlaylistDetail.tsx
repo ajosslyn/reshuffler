@@ -2,10 +2,9 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   fetchPlaylistDetails, 
-  fetchPlaylistTracks,
   playTrackOnDevice,
   transferPlaybackToDevice,
-  playPlaylistOnDevice
+  checkDeviceHealth
 } from '../api/spotify';
 import './PlaylistDetail.css';
 import ImageWithFallback from './common/ImageWithFallback';
@@ -67,11 +66,464 @@ const PlaylistDetail: React.FC = () => {
   const [lastTapTime, setLastTapTime] = useState<number>(0);
 
   // Add these after your existing state variables
-  const [player, setPlayer] = useState<any>(null);
   const [deviceId, setDeviceId] = useState<string>('');
   const [isPremium, setIsPremium] = useState<boolean>(false);
   const [isDeviceReady, setIsDeviceReady] = useState<boolean>(false);
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
+  // Add toast notification state
+  const [toastMessage, setToastMessage] = useState<string>('');
+  const [showToast, setShowToast] = useState<boolean>(false);
+
+  // 1. First declare showToastMessage (ONLY ONCE)
+  const showToastMessage = useCallback((message: string) => {
+    setToastMessage(message);
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 3000);
+  }, []);
+
+  // 2. Then handlePlaybackError (ONLY ONCE)
+  const handlePlaybackError = useCallback((err: any) => {
+    console.error("Error playing track:", err);
+    
+    if (err.message && (
+      err.message.includes('device is not registered') || 
+      err.message.includes('device_not_found') ||
+      err.message.includes('Device not found') ||
+      err.message.includes('device not found') ||
+      err.message.includes('Device not found or expired')
+    )) {
+      setIsDeviceReady(false);
+      showToastMessage("Playback device disconnected. Please return to the Dashboard to reconnect.");
+    } else if (err.message && err.message.includes('Premium subscription required')) {
+      showToastMessage("Premium subscription required for full track playback.");
+      setIsPremium(false);
+    } else if (err.message && err.message.includes('rate_limit')) {
+      showToastMessage("Too many requests. Please wait a moment and try again.");
+    } else {
+      showToastMessage("Failed to play track with Spotify Premium. Falling back to preview mode.");
+      setIsPremium(false);
+    }
+  }, [showToastMessage]);
+
+  // 3. Then fallbackToPreview (ONLY ONCE)
+  const fallbackToPreview = useCallback((track: Track) => {
+    if (!track.preview_url) return;
+    
+    if (currentlyPlayingTrack === track.id) {
+      if (isPlaying) {
+        audioRef.current?.pause();
+      } else {
+        audioRef.current?.play();
+      }
+      setIsPlaying(!isPlaying);
+    } else {
+      if (audioRef.current) {
+        audioRef.current.src = track.preview_url;
+        audioRef.current.play()
+          .then(() => {
+            setIsPlaying(true);
+            setCurrentlyPlayingTrack(track.id);
+          })
+          .catch(err => {
+            console.error("Error playing track preview:", err);
+            showToastMessage("Failed to play track preview.");
+          });
+      }
+    }
+  }, [currentlyPlayingTrack, isPlaying, showToastMessage]);
+
+    // Add this function after your checkAndReconnectDevice function
+  const validateDeviceAndPlayer = useCallback(async () => {
+    if (!isPremium || !deviceId) return false;
+    
+    try {
+      console.log('Validating device and player...');
+      
+      // Use the new checkDeviceHealth function
+      const deviceHealth = await checkDeviceHealth(deviceId);
+      
+      if (deviceHealth.exists) {
+        console.log(`Device found: ${deviceHealth.name} (${deviceHealth.type}) - Active: ${deviceHealth.isActive}`);
+        setIsDeviceReady(deviceHealth.isActive || true);
+        return true;
+      } else {
+        console.log('Device not found in available devices');
+        setIsDeviceReady(false);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error validating device:', error);
+      setIsDeviceReady(false);
+      return false;
+    }
+  }, [deviceId, isPremium]);
+
+    // Improved device check and reconnection function
+  const checkAndReconnectDevice = useCallback(async () => {
+    if (!deviceId || !isPremium) return false;
+    
+    try {
+      setIsReconnecting(true);
+      console.log('Checking device connection...');
+      
+      // First validate the device exists
+      const deviceValid = await validateDeviceAndPlayer();
+      if (!deviceValid) {
+        console.log('Device validation failed');
+        showToastMessage("Device no longer available. Please return to Dashboard to reconnect.");
+        return false;
+      }
+      
+      // Try to transfer playbook to see if device is still valid
+      try {
+        await transferPlaybackToDevice(deviceId);
+        
+        // Wait a moment for the transfer to complete
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Verify the transfer worked
+        const verifyResponse = await fetch('https://api.spotify.com/v1/me/player', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          }
+        });
+        
+        if (verifyResponse.status === 200) {
+          const verifyData = await verifyResponse.json();
+          if (verifyData && verifyData.device && verifyData.device.id === deviceId) {
+            console.log('Device reconnected successfully');
+            setIsDeviceReady(true);
+            showToastMessage("Device reconnected successfully!");
+            return true;
+          }
+        }
+        
+        console.log('Device transfer failed - device may be expired');
+        throw new Error('Device transfer failed');
+        
+      } catch (transferError: any) {
+        console.error('Transfer failed:', transferError);
+        
+        // If transfer fails, the device is likely expired
+        console.log('Device appears to be expired, need to reinitialize');
+        setIsDeviceReady(false);
+        showToastMessage("Device expired. Please return to Dashboard to reconnect Spotify.");
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('Failed to reconnect device:', error);
+      setIsDeviceReady(false);
+      showToastMessage("Device connection failed. Please return to Dashboard to reconnect.");
+      return false;
+    } finally {
+      setIsReconnecting(false);
+    }
+  }, [deviceId, isPremium, showToastMessage, validateDeviceAndPlayer]);
+
+
+
+  // 4. Finally handlePlayTrack (ONLY ONCE)
+  const handlePlayTrack = useCallback(async (track: Track) => {
+    console.log('=== TRACK PLAYBACK STARTED ===');
+    console.log('Track:', track.name);
+    console.log('Track ID:', track.id);
+    console.log('Has Preview:', !!track.preview_url);
+    console.log('Preview URL:', track.preview_url);
+    console.log('Is Premium:', isPremium);
+    console.log('Device ID:', deviceId);
+    console.log('Device Ready:', isDeviceReady);
+    console.log('================================');
+    
+    // For Premium users with device ready, use Spotify SDK/Web API
+    if (isPremium && deviceId && isDeviceReady) {
+      console.log('🎵 Using Premium playback via Spotify SDK...');
+      
+      try {
+        // Check if device is still connected before attempting playback
+        const deviceCheck = await validateDeviceAndPlayer();
+        if (!deviceCheck) {
+          console.log('Device validation failed, attempting reconnect...');
+          const reconnected = await checkAndReconnectDevice();
+          if (!reconnected) {
+            console.log('Reconnection failed, falling back to preview');
+            fallbackToPreview(track);
+            return;
+          }
+        }
+        
+        // Use Spotify Web API to play the track
+        await playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+        
+        setCurrentlyPlayingTrack(track.id);
+        setIsPlaying(true);
+        console.log('✅ SUCCESS: Premium playback started');
+        showToastMessage(`Now playing: ${track.name}`);
+        
+      } catch (error: any) {
+        console.error('❌ Premium playback failed:', error);
+        
+        // Check if it's a device not found error
+        if (error.message && (
+          error.message.includes('device_not_found') || 
+          error.message.includes('404') ||
+          error.message.includes('Device not found') ||
+          error.message.includes('device not found')
+        )) {
+          console.log('🔄 Device not found, attempting reconnection...');
+          setIsDeviceReady(false);
+          
+          const reconnected = await checkAndReconnectDevice();
+          if (reconnected) {
+            console.log('✅ Device reconnected, retrying playback...');
+            try {
+              await playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+              setCurrentlyPlayingTrack(track.id);
+              setIsPlaying(true);
+              console.log('✅ SUCCESS: Premium playback started after reconnection');
+              showToastMessage(`Now playing: ${track.name}`);
+              return;
+            } catch (retryError) {
+              console.error('❌ Retry failed after reconnection:', retryError);
+            }
+          }
+        }
+        
+        handlePlaybackError(error);
+        
+        // Fall back to preview if available
+        if (track.preview_url) {
+          console.log('🔄 Falling back to preview mode...');
+          fallbackToPreview(track);
+        } else {
+          showToastMessage("Unable to play track. Device may be expired - please return to Dashboard to reconnect.");
+        }
+      }
+    } else {
+      // Fall back to preview for non-Premium users or when device isn't ready
+      console.log('🎵 Using preview mode (non-Premium or device not ready)...');
+      
+      if (!track.preview_url) {
+        console.log('❌ No preview URL available');
+        showToastMessage("No preview available for this track. Premium account with active device required for full playback.");
+        return;
+      }
+      
+      fallbackToPreview(track);
+    }
+  }, [isPremium, deviceId, isDeviceReady, validateDeviceAndPlayer, checkAndReconnectDevice, fallbackToPreview, showToastMessage, handlePlaybackError]);
+
+  // 5. findNextTrackWithPreview function
+  const findNextTrackWithPreview = useCallback((tracks: Array<{ track: Track }>, startIndex: number): number => {
+    for (let i = startIndex; i < tracks.length; i++) {
+      if (tracks[i].track.preview_url) {
+        return i;
+      }
+    }
+    return -1;
+  }, []);
+
+  // 6. playEntirePlaylist function
+  const playEntirePlaylist = useCallback(async (startIndex = 0) => {
+    if (!playlist?.tracks?.items || playlist.tracks.items.length === 0) return;
+    
+    const tracks = isShuffled ? shuffledTracks : playlist.tracks.items;
+    
+    if (startIndex < 0 || startIndex >= tracks.length) {
+      startIndex = 0;
+    }
+    
+    const trackToPlay = tracks[startIndex].track;
+    
+    // For Premium users with device ready, use Spotify SDK/Web API
+    if (isPremium && deviceId && isDeviceReady) {
+      console.log('🎵 Using Premium playback for entire playlist...');
+      
+      try {
+        // Check if device is still connected before attempting playback
+        const deviceCheck = await validateDeviceAndPlayer();
+        if (!deviceCheck) {
+          console.log('Device validation failed, attempting reconnect...');
+          const reconnected = await checkAndReconnectDevice();
+          if (!reconnected) {
+            console.log('Reconnection failed, falling back to preview');
+            fallbackToPreview(trackToPlay);
+            return;
+          }
+        }
+        
+        // Use Spotify Web API to play the track
+        await playTrackOnDevice(`spotify:track:${trackToPlay.id}`, deviceId);
+        
+        setCurrentlyPlayingTrack(trackToPlay.id);
+        setIsPlaying(true);
+        console.log('✅ SUCCESS: Premium playlist playback started');
+        showToastMessage(`Now playing: ${trackToPlay.name}`);
+        
+      } catch (error: any) {
+        console.error('❌ Premium playlist playback failed:', error);
+        
+        // Check if it's a device not found error
+        if (error.message && (
+          error.message.includes('device_not_found') || 
+          error.message.includes('404') ||
+          error.message.includes('Device not found') ||
+          error.message.includes('device not found')
+        )) {
+          console.log('🔄 Device not found, attempting reconnection...');
+          setIsDeviceReady(false);
+          
+          const reconnected = await checkAndReconnectDevice();
+          if (reconnected) {
+            console.log('✅ Device reconnected, retrying playlist playback...');
+            try {
+              await playTrackOnDevice(`spotify:track:${trackToPlay.id}`, deviceId);
+              setCurrentlyPlayingTrack(trackToPlay.id);
+              setIsPlaying(true);
+              console.log('✅ SUCCESS: Premium playlist playback started after reconnection');
+              showToastMessage(`Now playing: ${trackToPlay.name}`);
+              return;
+            } catch (retryError) {
+              console.error('❌ Retry failed after reconnection:', retryError);
+            }
+          }
+        }
+        
+        handlePlaybackError(error);
+        
+        // Fall back to preview if available
+        if (trackToPlay.preview_url) {
+          console.log('🔄 Falling back to preview mode...');
+          fallbackToPreview(trackToPlay);
+        } else {
+          showToastMessage("Unable to play track. Device may be expired - please return to Dashboard to reconnect.");
+        }
+      }
+    } else {
+      // Fall back to preview for non-Premium users or when device isn't ready
+      console.log('🎵 Using preview mode for playlist...');
+      
+      if (audioRef.current) {
+        if (currentlyPlayingTrack !== trackToPlay.id || !isPlaying) {
+          if (!trackToPlay.preview_url) {
+            let nextAvailableIndex = findNextTrackWithPreview(tracks, startIndex);
+            if (nextAvailableIndex !== -1) {
+              playEntirePlaylist(nextAvailableIndex);
+            } else {
+              showToastMessage("No playable tracks found in this playlist. Full playback requires Spotify Premium.");
+            }
+            return;
+          }
+          
+          audioRef.current.src = trackToPlay.preview_url || '';
+          audioRef.current.play()
+            .then(() => {
+              setIsPlaying(true);
+              setCurrentlyPlayingTrack(trackToPlay.id);
+            })
+            .catch(err => {
+              console.error("Error playing track:", err);
+              showToastMessage("Failed to play track preview. This may be due to browser autoplay restrictions.");
+            });
+        } else if (isPlaying) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+        } else {
+          audioRef.current.play()
+            .then(() => setIsPlaying(true))
+            .catch(err => console.error("Error resuming playback:", err));
+        }
+      }
+    }
+  }, [playlist, shuffledTracks, isShuffled, currentlyPlayingTrack, isPlaying, findNextTrackWithPreview, showToastMessage, isPremium, deviceId, isDeviceReady, validateDeviceAndPlayer, checkAndReconnectDevice, fallbackToPreview, handlePlaybackError]);
+
+  // 7. handleMainPlayButtonClick function
+  const handleMainPlayButtonClick = useCallback(() => {
+    if (!playlist) return;
+    
+    // Use proper Premium/preview logic
+    if (!currentlyPlayingTrack && playlist?.tracks?.items && playlist.tracks.items.length > 0) {
+      playEntirePlaylist(0);
+    } else {
+      if (isPlaying) {
+        audioRef.current?.pause();
+        setIsPlaying(false);
+      } else {
+        audioRef.current?.play()
+          .then(() => setIsPlaying(true))
+          .catch(err => console.error("Error resuming playback:", err));
+      }
+    }
+  }, [currentlyPlayingTrack, isPlaying, playlist, playEntirePlaylist]);
+
+  // 8. Other callback functions
+  const handleTrackEnded = useCallback(() => {
+    const tracks = isShuffled ? shuffledTracks : playlist?.tracks?.items;
+    if (!tracks) return;
+
+    const currentIndex = tracks.findIndex(item => item.track.id === currentlyPlayingTrack);
+    
+    if (currentIndex >= 0 && currentIndex < tracks.length - 1) {
+      playEntirePlaylist(currentIndex + 1);
+    } else {
+      setIsPlaying(false);
+      setCurrentlyPlayingTrack(null);
+    }
+  }, [currentlyPlayingTrack, isShuffled, playlist?.tracks?.items, shuffledTracks, playEntirePlaylist]);
+
+  const handleTrackTap = useCallback((track: Track, event: React.TouchEvent) => {
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTapTime;
+
+    if (tapLength < 300 && tapLength > 0) {
+      handlePlayTrack(track);
+      event.preventDefault();
+    }
+
+    setLastTapTime(currentTime);
+  }, [lastTapTime, handlePlayTrack]);
+
+  const handleAudioError = useCallback((e: Event) => {
+    console.error("Audio playback error:", e);
+    setIsPlaying(false);
+    showToastMessage("Error playing track. The preview may not be available.");
+  }, [showToastMessage]);
+
+  // Add this function to reinitialize Spotify connection
+  const reinitializeSpotify = useCallback(async () => {
+    console.log('Redirecting to Dashboard to reinitialize Spotify...');
+    showToastMessage("Redirecting to Dashboard to reconnect Spotify...");
+    
+    // Clear expired device info
+    localStorage.removeItem('spotify_device_id');
+    localStorage.removeItem('spotify_is_premium');
+    
+    // Navigate back to dashboard
+    setTimeout(() => {
+      navigate('/dashboard');
+    }, 1000);
+  }, [navigate, showToastMessage]);
+
+  // Update your manual reconnect function
+  const manualReconnect = useCallback(async () => {
+    if (!isPremium || !deviceId) {
+      showToastMessage("Premium account and device ID required for reconnection.");
+      return;
+    }
+    
+    showToastMessage("Checking device connection...");
+    const success = await checkAndReconnectDevice();
+    
+    if (!success) {
+      // If reconnection fails, offer to reinitialize
+      showToastMessage("Device appears to be expired. Click 'Reconnect Spotify' to reinitialize.");
+    }
+  }, [isPremium, deviceId, checkAndReconnectDevice, showToastMessage]);
+
+  // useEffects
   useEffect(() => {
     const loadPlaylistDetails = async () => {
       if (!id) return;
@@ -88,6 +540,21 @@ const PlaylistDetail: React.FC = () => {
 
         const playlistData = await fetchPlaylistDetails(id);
         console.log('Playlist details loaded:', playlistData);
+        
+        // Debug: Check preview URLs
+        const tracksWithPreviews = playlistData.tracks.items.filter((item: any) => item.track.preview_url);
+        console.log('🎵 Tracks with previews:', tracksWithPreviews.length, 'out of', playlistData.tracks.items.length);
+        
+        // Log first few tracks for debugging
+        playlistData.tracks.items.slice(0, 5).forEach((item: any, index: number) => {
+          console.log(`Track ${index + 1}:`, {
+            name: item.track.name,
+            id: item.track.id,
+            preview_url: item.track.preview_url,
+            hasPreview: !!item.track.preview_url
+          });
+        });
+        
         setPlaylist(playlistData);
       } catch (err) {
         console.error('Error fetching playlist details:', err);
@@ -101,17 +568,73 @@ const PlaylistDetail: React.FC = () => {
   }, [id, navigate]);
 
   useEffect(() => {
-    // Check for existing SDK instance from Dashboard
     const existingDeviceId = localStorage.getItem('spotify_device_id');
     const isPremiumUser = localStorage.getItem('spotify_is_premium') === 'true';
     
     if (existingDeviceId) {
       setDeviceId(existingDeviceId);
       setIsPremium(isPremiumUser);
-      setIsDeviceReady(true);
+      // Don't assume device is ready - validate it first
+      setIsDeviceReady(false);
     }
   }, []);
 
+  // Add this useEffect for audio event listeners
+  useEffect(() => {
+    if (audioRef.current) {
+      const audio = audioRef.current;
+      audio.addEventListener('ended', handleTrackEnded);
+      audio.addEventListener('error', handleAudioError);
+
+      return () => {
+        audio.removeEventListener('ended', handleTrackEnded);
+        audio.removeEventListener('error', handleAudioError);
+      };
+    }
+  }, [handleTrackEnded, handleAudioError]);
+
+  // Add this useEffect after your existing ones
+  useEffect(() => {
+    if (isPremium && deviceId) {
+      // Check device connection when component mounts
+      console.log('Checking device on component mount...');
+      checkAndReconnectDevice();
+    }
+  }, [isPremium, deviceId, checkAndReconnectDevice]);
+
+  // Also add periodic device health check
+  useEffect(() => {
+    if (!isPremium || !deviceId) return;
+    
+    const healthCheck = setInterval(async () => {
+      if (isDeviceReady && !isReconnecting) {
+        try {
+          const deviceHealth = await checkDeviceHealth(deviceId);
+          
+          if (!deviceHealth.exists) {
+            console.log('Device health check failed - device not found in devices list');
+            setIsDeviceReady(false);
+            showToastMessage("Device disconnected. Click reconnect to restore playback.");
+          } else if (!deviceHealth.isActive) {
+            console.log(`Device found but not active: ${deviceHealth.name} (${deviceHealth.type})`);
+            // Device exists but may not be active - this is often recoverable
+          } else {
+            console.log(`Device healthy: ${deviceHealth.name} (${deviceHealth.type}) - Active: ${deviceHealth.isActive}`);
+          }
+        } catch (error) {
+          console.error('Device health check error:', error);
+          // Don't set device as not ready for network errors unless it's a clear device not found
+          if (error instanceof Error && error.message.includes('device_not_found')) {
+            setIsDeviceReady(false);
+          }
+        }
+      }
+    }, 45000); // Check every 45 seconds (less frequent to avoid rate limiting)
+    
+    return () => clearInterval(healthCheck);
+  }, [isPremium, deviceId, isDeviceReady, isReconnecting, showToastMessage]);
+
+  // Utility functions
   const formatDuration = (ms: number): string => {
     const minutes = Math.floor(ms / 60000);
     const seconds = ((ms % 60000) / 1000).toFixed(0);
@@ -121,8 +644,6 @@ const PlaylistDetail: React.FC = () => {
   const handleBackClick = () => {
     navigate('/dashboard');
   };
-
-
 
   const handleSmartShuffle = () => {
     if (!playlist) return;
@@ -143,410 +664,150 @@ const PlaylistDetail: React.FC = () => {
     setIsShuffled(true);
   };
 
-  const handlePlaybackError = useCallback((err: any) => {
-    console.error("Error playing track:", err);
-    
-    // Check if error is related to device registration
-    if (err.message && (
-      err.message.includes('device is not registered') || 
-      err.message.includes('device_not_found')
-    )) {
-      setIsDeviceReady(false);
-      alert("Playback device disconnected. Please return to the home screen to reconnect.");
-    } else {
-      alert("Failed to play track with Spotify Premium. Falling back to preview mode.");
-      setIsPremium(false);
-    }
-  }, []);
-
-  // First, add a function declaration for handlePlayTrack with useCallback
-  const handlePlayTrack = useCallback((track: Track) => {
-    if (isPremium && deviceId && isDeviceReady) {
-      playTrackOnDevice(`spotify:track:${track.id}`, deviceId)
-        .then(() => {
-          setIsPlaying(true);
-          setCurrentlyPlayingTrack(track.id);
-        })
-        .catch(handlePlaybackError);
-    } else {
-      if (!track.preview_url) {
-        console.log("No preview available for this track");
-        alert("No preview available for this track. Full playback requires Spotify Premium.");
-        return;
-      }
-
-      if (currentlyPlayingTrack === track.id) {
-        if (isPlaying) {
-          audioRef.current?.pause();
-        } else {
-          audioRef.current?.play();
-        }
-        setIsPlaying(!isPlaying);
-      } else {
-        if (audioRef.current) {
-          audioRef.current.src = track.preview_url || '';
-          audioRef.current.play()
-            .then(() => {
-              setIsPlaying(true);
-              setCurrentlyPlayingTrack(track.id);
-            })
-            .catch(err => {
-              console.error("Error playing track:", err);
-              alert("Failed to play track preview. This may be due to browser autoplay restrictions.");
-            });
-        }
-      }
-    }
-  }, [audioRef, currentlyPlayingTrack, isPlaying, isPremium, deviceId, isDeviceReady, handlePlaybackError]);
-
-  const handleTrackTap = useCallback((track: Track, event: React.TouchEvent) => {
-    const currentTime = new Date().getTime();
-    const tapLength = currentTime - lastTapTime;
-
-    if (tapLength < 300 && tapLength > 0) {
-      // Double tap detected
-      handlePlayTrack(track);
-      event.preventDefault();
-    }
-
-    setLastTapTime(currentTime);
-  }, [lastTapTime, handlePlayTrack]);
-
-  const playEntirePlaylist = useCallback((startIndex = 0) => {
-    if (!playlist?.tracks?.items || playlist.tracks.items.length === 0) return;
-    
-    const tracks = isShuffled ? shuffledTracks : playlist.tracks.items;
-    
-    // Make sure we have a valid start index
-    if (startIndex < 0 || startIndex >= tracks.length) {
-      startIndex = 0;
-    }
-    
-    // Start playing from the selected track
-    const trackToPlay = tracks[startIndex].track;
-    
-    if (audioRef.current) {
-      // Only set the URL if it's a different track or not currently playing
-      if (currentlyPlayingTrack !== trackToPlay.id || !isPlaying) {
-        if (!trackToPlay.preview_url) {
-          // If no preview URL, try to find the next available track
-          let nextAvailableIndex = findNextTrackWithPreview(tracks, startIndex);
-          if (nextAvailableIndex !== -1) {
-            playEntirePlaylist(nextAvailableIndex);
-          } else {
-            alert("No playable tracks found in this playlist. Full playback requires Spotify Premium.");
-          }
-          return;
-        }
-        
-        audioRef.current.src = trackToPlay.preview_url || '';
-        audioRef.current.play()
-          .then(() => {
-            setIsPlaying(true);
-            setCurrentlyPlayingTrack(trackToPlay.id);
-          })
-          .catch(err => {
-            console.error("Error playing track:", err);
-            alert("Failed to play track preview. This may be due to browser autoplay restrictions.");
-          });
-      } else if (isPlaying) {
-        // If it's the same track and already playing, just pause
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        // If it's the same track but paused, resume playing
-        audioRef.current.play()
-          .then(() => setIsPlaying(true))
-          .catch(err => console.error("Error resuming playback:", err));
-      }
-    }
-  }, [playlist, shuffledTracks, isShuffled, currentlyPlayingTrack, isPlaying]);
-
-  // Update the findNextTrackWithPreview function with proper typing
-  const findNextTrackWithPreview = useCallback((tracks: Array<{ track: Track }>, startIndex: number): number => {
-    for (let i = startIndex; i < tracks.length; i++) {
-      if (tracks[i].track.preview_url) {
-        return i;
-      }
-    }
-    return -1;
-  }, []);
-
-  // Update handleTrackEnded to use the playEntirePlaylist function
-  const handleTrackEnded = useCallback(() => {
-    const tracks = isShuffled ? shuffledTracks : playlist?.tracks?.items;
-    if (!tracks) return;
-
-    const currentIndex = tracks.findIndex(item => item.track.id === currentlyPlayingTrack);
-    
-    if (currentIndex >= 0 && currentIndex < tracks.length - 1) {
-      // Play the next track in the playlist
-      playEntirePlaylist(currentIndex + 1);
-    } else {
-      // End of playlist reached
-      setIsPlaying(false);
-      setCurrentlyPlayingTrack(null);
-    }
-  }, [currentlyPlayingTrack, isShuffled, playlist?.tracks?.items, shuffledTracks, playEntirePlaylist, isPremium, deviceId]);
-
-  const handleAudioError = useCallback((e: Event) => {
-    console.error("Audio playback error:", e);
-    setIsPlaying(false);
-    alert("Error playing track. The preview may not be available.");
-  }, []);
-
-  // Add this function before your handlePlayTrack function
- 
-
-  // Replace your existing handleMainPlayButtonClick with this implementation
-  const handleMainPlayButtonClick = useCallback(() => {
-    if (!playlist) return;
-    
-    if (isPremium && deviceId && isDeviceReady && id) {
-      // Play the entire playlist using SDK
-      console.log('Using SDK to play entire playlist');
-      
-      playPlaylistOnDevice(`spotify:playlist:${id}`, deviceId, 0)
-        .then(() => {
-          setIsPlaying(true);
-          if (playlist.tracks.items.length > 0) {
-            setCurrentlyPlayingTrack(playlist.tracks.items[0].track.id);
-          }
-        })
-        .catch(err => {
-          handlePlaybackError(err);
-          
-          // Fall back to playing first track with preview URL
-          if (playlist.tracks.items.length > 0 && playlist.tracks.items[0].track.preview_url) {
-            playEntirePlaylist(0);
-          } else {
-            alert("No preview available for the first track.");
-          }
-        });
-    } else {
-      if (!currentlyPlayingTrack && playlist?.tracks?.items && playlist.tracks.items.length > 0) {
-        // Start playing from the first track
-        playEntirePlaylist(0);
-      } else {
-        // Toggle play/pause for the current track
-        if (isPlaying) {
-          audioRef.current?.pause();
-          setIsPlaying(false);
-        } else {
-          audioRef.current?.play()
-            .then(() => setIsPlaying(true))
-            .catch(err => console.error("Error resuming playback:", err));
-        }
-      }
-    }
-  }, [currentlyPlayingTrack, isPlaying, playlist, id, isPremium, deviceId, isDeviceReady, playEntirePlaylist, handlePlaybackError]);
-
-  useEffect(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio();
-      audioRef.current.addEventListener('ended', handleTrackEnded);
-      audioRef.current.addEventListener('error', handleAudioError);
-    }
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.removeEventListener('ended', handleTrackEnded);
-        audioRef.current.removeEventListener('error', handleAudioError);
-        audioRef.current = null;
-      }
-    };
-  }, [handleTrackEnded, handleAudioError]); // Add both functions to dependency array
-
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="playlist-detail-container">
-        <div className="loading-spinner"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="playlist-detail-container">
-        <div className="error-container">
-          <h2>Something went wrong</h2>
-          <p>{error}</p>
-          <button className="btn" onClick={handleBackClick}>Back to Dashboard</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!playlist) {
-    return (
-      <div className="playlist-detail-container">
-        <div className="error-container">
-          <h2>Playlist not found</h2>
-          <button className="btn" onClick={handleBackClick}>Back to Dashboard</button>
-        </div>
-      </div>
-    );
-  }
-
-  const coverImage = playlist.images && playlist.images.length > 0
-    ? playlist.images[0].url
-    : 'https://via.placeholder.com/300?text=No+Cover';
+  // Rest of your component JSX...
+  if (loading) return <div className="loading">Loading playlist...</div>;
+  if (error) return <div className="error">{error}</div>;
+  if (!playlist) return <div className="error">Playlist not found</div>;
 
   return (
-    <div className="playlist-detail-container">
-      <button
-        className="back-button"
-        onClick={handleBackClick}
-        aria-label="Go back"
-      >
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <path fill="currentColor" d="M15.957 2.793a1 1 0 010 1.414L8.164 12l7.793 7.793a1 1 0 11-1.414 1.414L5.336 12l9.207-9.207a1 1 0 011.414 0z" />
-        </svg>
-      </button>
+    <div className="playlist-detail">
+      <audio ref={audioRef} />
+      
+      {/* Toast notification */}
+      {showToast && (
+        <div className="toast-notification">
+          <div className="toast-content">
+            <span>{toastMessage}</span>
+            <button onClick={() => setShowToast(false)}>×</button>
+          </div>
+        </div>
+      )}
 
+      {/* Header */}
       <div className="playlist-header">
-        <div className="playlist-cover">
-          <img src={coverImage} alt={playlist.name} />
-        </div>
-        <div className="playlist-info">
-          <h1 className="playlist-title">{playlist.name}</h1>
-          {playlist.description && (
-            <p className="playlist-description">{playlist.description}</p>
-          )}
-          <div className="playlist-meta">
-            <span>{playlist.owner.display_name}</span>
-            {playlist.followers && (
-              <span> • {playlist.followers.total.toLocaleString()} likes</span>
-            )}
-            <span> • {playlist.tracks.total} songs</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="playlist-actions-container">
-        <button
-          className="play-button"
-          onClick={handleMainPlayButtonClick}
-          aria-label={isPlaying ? "Pause playlist" : "Play playlist"}
-        >
-          {isPlaying ? (
-            <svg viewBox="0 0 16 16" width="32" height="32">
-              <rect x="3" y="2" width="4" height="12" fill="currentColor" />
-              <rect x="9" y="2" width="4" height="12" fill="currentColor" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" width="32" height="32">
-              <path fill="currentColor" d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" />
-            </svg>
-          )}
+        <button onClick={handleBackClick} className="back-button">
+          ← Back to Dashboard
         </button>
-
-        <div className="playlist-action-buttons">
-          <button className={`shuffle-button ${isShuffled ? 'active' : ''}`} onClick={handleSmartShuffle}>
-            <svg viewBox="0 0 24 24" width="24" height="24">
-              <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17L10.59 9.17zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm0.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
-            </svg>
-          </button>
-
-          <button className="more-button">
-            <svg viewBox="0 0 24 24" width="24" height="24">
-              <circle cx="12" cy="4" r="2" fill="currentColor" />
-              <circle cx="12" cy="12" r="2" fill="currentColor" />
-              <circle cx="12" cy="20" r="2" fill="currentColor" />
-            </svg>
-          </button>
-        </div>
-
+        
+        {/* Device Status */}
         {isPremium && (
-  <div className="premium-badge">
-    <svg viewBox="0 0 16 16" width="16" height="16">
-      <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
-    </svg>
-    <span>Premium</span>
-  </div>
-)}
-
+          <div className={`device-status ${isDeviceReady ? 'connected' : 'disconnected'}`}>
+            {isReconnecting ? (
+              <>
+                <div className="spinner"></div>
+                <span>Reconnecting...</span>
+              </>
+            ) : isDeviceReady ? (
+              <>
+                <div className="status-dot connected"></div>
+                <span>Device Ready</span>
+              </>
+            ) : (
+              <>
+                <div className="status-dot disconnected"></div>
+                <span>Device Offline</span>
+                <div className="device-actions">
+                  <button onClick={manualReconnect} className="reconnect-btn">
+                    Retry
+                  </button>
+                  <button onClick={reinitializeSpotify} className="reinit-btn">
+                    Reconnect Spotify
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="tracks-container">
-        <div className="tracks-header">
-          <div className="track-number">#</div>
-          <div className="track-title">TITLE</div>
-          <div className="track-album">ALBUM</div>
-          <div className="track-duration">
-            <svg viewBox="0 0 16 16" width="16" height="16">
-              <path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zM8 14A6 6 0 118 2a6 6 0 010 12zM8 3.5a.5.5 0 01.5.5v4.096l3.813 2.292a.5.5 0 01-.526.851l-4-2.5a.5.5 0 01-.287-.454V4a.5.5 0 01.5-.5z" />
-            </svg>
+      {/* Playlist Info */}
+      <div className="playlist-info">
+        <div className="playlist-image">
+          <ImageWithFallback
+            src={playlist.images?.[0]?.url || ''}
+            alt={playlist.name}
+            fallbackSrc="https://via.placeholder.com/300x300/6c2dc7/ffffff?text=No+Image"
+          />
+        </div>
+        
+        <div className="playlist-details">
+          <h1>{playlist.name}</h1>
+          <p className="playlist-description">{playlist.description}</p>
+          <div className="playlist-meta">
+            <span>By {playlist.owner.display_name}</span>
+            <span>•</span>
+            <span>{playlist.tracks.total} tracks</span>
+            {playlist.followers && (
+              <>
+                <span>•</span>
+                <span>{playlist.followers.total} followers</span>
+              </>
+            )}
           </div>
         </div>
+      </div>
 
-        <div className="tracks-list">
-          {(isShuffled ? shuffledTracks : playlist.tracks.items).map((item, index) => (
-            <div
-              key={`${item.track.id}-${index}`}
-              className={`track-item ${currentlyPlayingTrack === item.track.id ? 'playing' : ''}`}
-              onClick={() => handlePlayTrack(item.track)}
-              onTouchStart={(e) => handleTrackTap(item.track, e)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  handlePlayTrack(item.track);
-                  e.preventDefault();
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              aria-pressed={currentlyPlayingTrack === item.track.id}
-              aria-label={`Play ${item.track.name} by ${item.track.artists.map((a: { name: string }) => a.name).join(', ')}`}
-            >
-              <div className="track-number">
-                {currentlyPlayingTrack === item.track.id && isPlaying ? (
-                  <span className="now-playing-icon">
-                    <span className="bar"></span>
-                    <span className="bar"></span>
-                    <span className="bar"></span>
-                  </span>
-                ) : (
-                  index + 1
-                )}
-              </div>
-              <div className="play-icon">
-                {currentlyPlayingTrack === item.track.id && isPlaying ? (
-                  <svg viewBox="0 0 24 24" width="16" height="16">
-                    <rect x="6" y="4" width="4" height="16" fill="currentColor" />
-                    <rect x="14" y="4" width="4" height="16" fill="currentColor" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" width="16" height="16">
-                    <polygon points="8,5 19,12 8,19" fill="currentColor" />
-                  </svg>
-                )}
-              </div>
-              <div className="track-title-container">
-                <div className="track-artwork">
-                  <img
-                    src={item.track.album.images && item.track.album.images.length > 0
-                      ? item.track.album.images[item.track.album.images.length - 1].url
-                      : 'https://via.placeholder.com/40'}
-                    alt={item.track.album.name}
-                  />
-                </div>
-                <div className="track-info">
-                  <div className="track-name">{item.track.name}</div>
-                  <div className="track-artist">
-                    {item.track.artists.map((artist: { name: string }) => artist.name).join(', ')}
-                  </div>
-                </div>
-              </div>
-              <div className="track-album">{item.track.album.name}</div>
-              <div className="track-duration">{formatDuration(item.track.duration_ms)}</div>
-            </div>
-          ))}
+      {/* Controls */}
+      <div className="playlist-controls">
+        <button 
+          onClick={handleMainPlayButtonClick}
+          className="main-play-button"
+        >
+          {isPlaying ? '⏸️' : '▶️'} {isPlaying ? 'Pause' : 'Play'}
+        </button>
+        
+        <button 
+          onClick={handleSmartShuffle}
+          className={`shuffle-button ${isShuffled ? 'active' : ''}`}
+        >
+          🔀 {isShuffled ? 'Unshuffle' : 'Shuffle'}
+        </button>
+      </div>
+
+      {/* Track List */}
+      <div className="track-list">
+        <div className="track-list-header">
+          <span className="track-number">#</span>
+          <span className="track-title">Title</span>
+          <span className="track-duration">Duration</span>
         </div>
+        
+        {(isShuffled ? shuffledTracks : playlist.tracks.items).map((item: any, index: number) => (
+          <div
+            key={`${item.track.id}-${index}`}
+            className={`track-item ${currentlyPlayingTrack === item.track.id ? 'playing' : ''}`}
+            onClick={() => handlePlayTrack(item.track)}
+            onTouchStart={(e) => handleTrackTap(item.track, e)}
+          >
+            <div className="track-number">
+              {currentlyPlayingTrack === item.track.id && isPlaying ? (
+                <div className="now-playing-indicator">
+                  <div className="bar"></div>
+                  <div className="bar"></div>
+                  <div className="bar"></div>
+                </div>
+              ) : (
+                index + 1
+              )}
+            </div>
+            
+            <div className="track-info">
+              <div className="track-name">
+                {item.track.name}
+                {!item.track.preview_url && (
+                  <span className="no-preview-badge" title="No preview available">🔒</span>
+                )}
+              </div>
+              <div className="track-artist">
+                {item.track.artists.map((artist: any) => artist.name).join(', ')}
+              </div>
+            </div>
+            
+            <div className="track-duration">
+              {formatDuration(item.track.duration_ms)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
