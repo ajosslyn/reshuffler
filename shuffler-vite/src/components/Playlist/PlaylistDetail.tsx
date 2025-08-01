@@ -46,7 +46,9 @@ const PlaylistDetail: React.FC = () => {
 
     // Add these state variables
     const [currentProgress, setCurrentProgress] = useState(0);
+    const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
     const [progressInterval, setProgressInterval] = useState<NodeJS.Timeout | null>(null);
+    const [isScrolled, setIsScrolled] = useState<boolean>(false);
 
     // Helper function for formatting duration
     const formatDuration = (ms: number): string => {
@@ -55,280 +57,46 @@ const PlaylistDetail: React.FC = () => {
         return `${minutes}:${parseInt(seconds) < 10 ? '0' : ''}${seconds}`;
     };
 
-    useEffect(() => {
-        const loadPlaylistData = async () => {
-            if (!id) return;
+    // Add time formatting function
+    const formatTime = (seconds: number): string => {
+        const minutes = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    };
 
-            setLoading(true);
-            try {
-                const playlistData = await fetchPlaylistDetails(id);
-                setPlaylist(playlistData);
-
-                const tracksData = await fetchPlaylistTracks(id);
-                setTracks(tracksData.items || []);
-            } catch (error) {
-                console.error('Error loading playlist:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadPlaylistData();
-    }, [id]);
-
-    // Add Spotify Web Playback SDK initialization
-    useEffect(() => {
-        // Access the player from the Dashboard component if available
-        const checkForPlayer = () => {
-            if (window.Spotify && window.Spotify.Player) {
-                // Player is already initialized by Dashboard
-                console.log('Spotify SDK already initialized, checking for device');
-
-                // Check localStorage for player info
-                const existingDeviceId = localStorage.getItem('spotify_device_id');
-                const isPremiumUser = localStorage.getItem('spotify_is_premium') === 'true';
-
-                if (existingDeviceId) {
-                    console.log('Found existing device ID:', existingDeviceId);
-                    setDeviceId(existingDeviceId);
-                    setIsPremium(isPremiumUser);
-                    setIsDeviceReady(true);
-                }
-            }
-        };
-
-        // Check immediately and also after a short delay to ensure Dashboard has time to initialize
-        checkForPlayer();
-        const timer = setTimeout(checkForPlayer, 1000);
-
-        return () => clearTimeout(timer);
-    }, []);
-
-    const reconnectSpotifyDevice = useCallback(async () => {
-        console.log('Attempting to reconnect Spotify device...');
-
-        // Check if player instance already exists from Dashboard
-        const existingPlayer = player;
+    // Add progress bar click handler - MOVED HERE TO COMPLY WITH HOOKS RULES
+    const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (!isPremium || !deviceId || !currentlyPlayingTrack) return;
         
-        if (existingPlayer) {
-            console.log('Using existing player instance for reconnection');
-            try {
-                const success = await existingPlayer.connect();
-                if (success) {
-                    console.log('Successfully reconnected existing player');
-                    setIsDeviceReady(true);
-                    return true;
-                } else {
-                    console.error('Failed to reconnect existing player');
-                    return false;
-                }
-            } catch (err) {
-                console.error('Error reconnecting existing player:', err);
-                return false;
-            }
-        }
+        const progressBar = e.currentTarget;
+        const rect = progressBar.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const progressWidth = rect.width;
+        const clickPercent = clickX / progressWidth;
         
-        // Fall back to creating new player only if one doesn't exist already
-        console.log('No existing player, creating new instance');
-        
-        // Check if Spotify SDK is available
-        if (!window.Spotify || !window.Spotify.Player) {
-            console.error('Spotify SDK not available');
-            setIsPremium(false);
-            return false;
-        }
-
-        // Get fresh access token
-        const token = localStorage.getItem('accessToken');
-        if (!token) {
-            console.error('No access token available');
-            setIsPremium(false);
-            return false;
-        }
-
-        try {
-            // Create a new player instance
-            const newPlayer = new window.Spotify.Player({
-                name: 'Music Shuffler',
-                getOAuthToken: (cb: (token: string) => void) => { cb(token); },
-                volume: 0.5
-            });
-
-            // Connect and update state
-            const success = await newPlayer.connect();
-            if (success) {
-                // Add listeners for state changes
-                newPlayer.addListener('ready', ({ device_id }: { device_id: string }) => {
-                    console.log('Device reconnected with ID:', device_id);
-                    setDeviceId(device_id);
-                    setPlayer(newPlayer);
-                    setIsDeviceReady(true);
-
-                    // Update localStorage to reflect reconnection
-                    localStorage.setItem('spotify_device_id', device_id);
-                    localStorage.setItem('spotify_player_ready', 'true');
-                });
-
-                return true;
-            } else {
-                console.error('Failed to connect new Spotify player');
-                return false;
-            }
-        } catch (error) {
-            console.error('Error reconnecting Spotify device:', error);
-            return false;
-        }
-    }, [player]);
-
-    useEffect(() => {
-        if (!isPremium || !deviceId) return;
-
-        console.log('Setting up device keep-alive check (3-second interval)');
-
-        // Keep-alive ping every 3 seconds (same as Dashboard)
-        const keepAliveInterval = setInterval(() => {
-            if (player) {
-                // Get player state to keep connection alive - same approach as Dashboard
-                player.getCurrentState()
-                    .then((state: any) => {
-                        if (!state) {
-                            console.log('Device connection lost, reconnecting...');
-                            setIsDeviceReady(false);
-
-                            // Attempt reconnection
-                            player.connect()
-                                .then((success: boolean) => {
-                                    if (success) {
-                                        console.log('Successfully reconnected player');
-                                        setIsDeviceReady(true);
-
-                                        // Re-transfer playback to this device
-                                        if (deviceId) {
-                                            transferPlaybackToDevice(deviceId)
-                                                .then(() => console.log('Playback re-transferred successfully'))
-                                                .catch(err => console.error('Error re-transferring playback:', err));
-                                        }
-                                    }
-                                });
-                        } else {
-                            setIsDeviceReady(true);
-                        }
-                    });
-            }
-        }, 3000); // Check every 3 seconds - critical for preventing disconnection
-
-        return () => {
-            clearInterval(keepAliveInterval);
-        };
-    }, [player, isPremium, deviceId]);
-
-    useEffect(() => {
-        // Skip if player isn't available
-        if (!player) return;
-
-        console.log('Setting up player state listener');
-
-        const stateListener = (state: any) => {
-            if (!state) {
-                console.log('Player state is null, device likely disconnected');
-                setIsDeviceReady(false);
-                return;
-            }
-
-            // Update UI state based on actual player state
-            setIsPlaying(!state.paused);
-
-            // Update current track if it's different
-            if (state.track_window?.current_track) {
-                const spotifyTrack = state.track_window.current_track;
-                setCurrentlyPlayingTrack(spotifyTrack.id);
-            }
-        };
-
-        player.addListener('player_state_changed', stateListener);
-
-        return () => {
-            player.removeListener('player_state_changed', stateListener);
-        };
-    }, [player]);
-
-    // Add this effect to fix reconnection issues
-    useEffect(() => {
-        // When component mounts, verify that the device is still active
-        if (isPremium && deviceId) {
-            // Immediately check device status
-            fetch('https://api.spotify.com/v1/me/player/devices', {
+        // Get the current track duration
+        const currentTrack = tracks.find(item => item.track.id === currentlyPlayingTrack);
+        if (currentTrack) {
+            const targetPosition = Math.floor((clickPercent * currentTrack.track.duration_ms) / 1000) * 1000;
+            
+            // Seek to the position using Spotify Web API
+            fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${targetPosition}`, {
+                method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
                 }
             })
-                .then(response => response.json())
-                .then(data => {
-                    const deviceActive = data.devices &&
-                        data.devices.some((device: any) => device.id === deviceId);
-
-                    if (!deviceActive) {
-                        console.log('Device inactive on component mount, reconnecting...');
-                        setIsDeviceReady(false);
-                        reconnectSpotifyDevice();
-                    } else {
-                        setIsDeviceReady(true);
-                    }
-                })
-                .catch(err => {
-                    console.error('Error checking device status:', err);
-                });
+            .then(response => {
+                if (response.ok) {
+                    setCurrentProgress(clickPercent * 100);
+                    setCurrentPlaybackTime(targetPosition / 1000);
+                }
+            })
+            .catch(err => console.error('Error seeking:', err));
         }
-    }, [isPremium, deviceId, reconnectSpotifyDevice]);
+    }, [isPremium, deviceId, currentlyPlayingTrack, tracks]);
 
-    // Add this useEffect after your other useEffects
-
-    useEffect(() => {
-        // Add specific mobile touch handling
-        if ('ontouchstart' in window) {
-            const trackItems = document.querySelectorAll('.track-item');
-            
-            trackItems.forEach(item => {
-                // Add touch feedback
-                item.addEventListener('touchstart', () => {
-                    item.classList.add('touch-active');
-                });
-                
-                item.addEventListener('touchend', () => {
-                    setTimeout(() => {
-                        item.classList.remove('touch-active');
-                    }, 150);
-                });
-                
-                item.addEventListener('touchcancel', () => {
-                    item.classList.remove('touch-active');
-                });
-            });
-            
-            // Add this class to the main container
-            document.querySelector('.playlist-detail-container')?.classList.add('touch-device');
-        }
-        
-        // Handle main content scroll events
-        const handleScroll = () => {
-            const container = document.querySelector('.playlist-detail-container');
-            if (container && container.scrollTop > 100) {
-                container.classList.add('scrolled');
-            } else if (container) {
-                container.classList.remove('scrolled');
-            }
-        };
-        
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        document.querySelector('.playlist-detail-container')?.addEventListener('scroll', handleScroll, { passive: true });
-        
-        return () => {
-            window.removeEventListener('scroll', handleScroll);
-            document.querySelector('.playlist-detail-container')?.removeEventListener('scroll', handleScroll);
-        };
-    }, []);
-
-    // Add a function to handle SDK playback errors
+    // ALL CALLBACK HOOKS - MOVED HERE TO COMPLY WITH HOOKS RULES
     const handlePlaybackError = useCallback((err: any) => {
         console.error("Error playing track:", err);
 
@@ -345,11 +113,25 @@ const PlaylistDetail: React.FC = () => {
         }
     }, []);
 
-
-
-
-
-    // Replace the complex handlePlayTrack function with this simplified version (around line 400)
+    // Add this fallbackToPreview helper function
+    const fallbackToPreview = useCallback((track: Track) => {
+        if (track.preview_url) {
+            if (audioRef.current) {
+                audioRef.current.src = track.preview_url;
+                audioRef.current.play()
+                    .then(() => {
+                        setIsPlaying(true);
+                        setCurrentlyPlayingTrack(track.id);
+                    })
+                    .catch(err => {
+                        console.error("Error playing preview:", err);
+                        alert("Could not play audio preview. This may be due to browser autoplay restrictions.");
+                    });
+            }
+        } else {
+            alert("No preview available for this track.");
+        }
+    }, []);
 
     const handlePlayTrack = useCallback((track: Track) => {
         // Add debug logging
@@ -427,27 +209,7 @@ const PlaylistDetail: React.FC = () => {
                 }
             }
         }
-    }, [audioRef, currentlyPlayingTrack, isPlaying, isPremium, deviceId, isDeviceReady, player]);
-
-    // Add this fallbackToPreview helper function
-    const fallbackToPreview = (track: Track) => {
-        if (track.preview_url) {
-            if (audioRef.current) {
-                audioRef.current.src = track.preview_url;
-                audioRef.current.play()
-                    .then(() => {
-                        setIsPlaying(true);
-                        setCurrentlyPlayingTrack(track.id);
-                    })
-                    .catch(err => {
-                        console.error("Error playing preview:", err);
-                        alert("Could not play audio preview. This may be due to browser autoplay restrictions.");
-                    });
-            }
-        } else {
-            alert("No preview available for this track.");
-        }
-    };
+    }, [audioRef, currentlyPlayingTrack, isPlaying, isPremium, deviceId, isDeviceReady, player, fallbackToPreview]);
 
     // Handle track ended
     const handleTrackEnded = useCallback(() => {
@@ -557,87 +319,45 @@ const PlaylistDetail: React.FC = () => {
         } else {
             // Non-premium preview mode
             const currentIndex = tracks.findIndex(item => item.track.id === currentlyPlayingTrack);
-            if (currentIndex > 0) {
+            if (currentIndex >= 0 && currentIndex > 0) {
                 const prevTrack = tracks[currentIndex - 1].track;
                 handlePlayTrack(prevTrack);
             }
         }
     }, [isPremium, deviceId, isDeviceReady, currentlyPlayingTrack, tracks, id, handlePlayTrack, handlePlaybackError]);
 
-    // Handle play/pause button - MOVED INSIDE COMPONENT
+    // Add handlePlayPauseClick function
     const handlePlayPauseClick = useCallback(() => {
-        if (isPremium && deviceId) {
-            if (!isDeviceReady) {
-                console.log('Device not ready, attempting reconnection before playing...');
-
-                reconnectSpotifyDevice()
-                    .then(success => {
-                        if (success) {
-                            console.log('Reconnection successful, waiting before toggling playback...');
-                            // Wait for reconnection to stabilize
-                            setTimeout(() => {
-                                // Toggle play state using API endpoint
-                                const endpoint = isPlaying ? 'pause' : 'play';
-                                fetch(`https://api.spotify.com/v1/me/player/${endpoint}`, {
-                                    method: 'PUT',
-                                    headers: {
-                                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-                                    }
-                                })
-                                    .then(() => setIsPlaying(!isPlaying))
-                                    .catch(err => handlePlaybackError(err));
-                            }, 1500);
-                        } else {
-                            // Fall back to preview mode if reconnection fails
-                            console.error('Failed to reconnect, falling back to preview mode');
-                            setIsPremium(false);
-
-                            if (currentlyPlayingTrack) {
-                                // Toggle preview playback
-                                if (isPlaying) {
-                                    audioRef.current?.pause();
-                                } else {
-                                    audioRef.current?.play();
-                                }
-                                setIsPlaying(!isPlaying);
-                            } else if (tracks.length > 0) {
-                                // Start playing first track
-                                handlePlayTrack(tracks[0].track);
-                            }
-                        }
-                    });
-            } else {
-                // Device is ready, use API to toggle play/pause
-                const endpoint = isPlaying ? 'pause' : 'play';
-                fetch(`https://api.spotify.com/v1/me/player/${endpoint}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-                    },
-                    // Add empty body for play requests to avoid HTTP 400 errors
-                    ...(endpoint === 'play' && { body: JSON.stringify({}) })
+        if (isPremium && deviceId && isDeviceReady) {
+            // Use Spotify Web API to control playback
+            const action = isPlaying ? 'pause' : 'play';
+            fetch(`https://api.spotify.com/v1/me/player/${action}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                }
+            })
+                .then(response => {
+                    if (response.ok) {
+                        setIsPlaying(!isPlaying);
+                    }
                 })
-                    .then(() => setIsPlaying(!isPlaying))
-                    .catch(err => {
-                        console.error(`Error ${isPlaying ? 'pausing' : 'playing'}:`, err);
-                        handlePlaybackError(err);
-                    });
-            }
+                .catch(err => {
+                    console.error('Error controlling playback:', err);
+                    handlePlaybackError(err);
+                });
         } else {
-            // Non-Premium preview mode (no changes needed)
-            if (currentlyPlayingTrack) {
+            // Preview mode - use audioRef
+            if (audioRef.current) {
                 if (isPlaying) {
-                    audioRef.current?.pause();
+                    audioRef.current.pause();
                 } else {
-                    audioRef.current?.play();
+                    audioRef.current.play();
                 }
                 setIsPlaying(!isPlaying);
-            } else if (tracks.length > 0) {
-                handlePlayTrack(tracks[0].track);
             }
         }
-    }, [isPremium, deviceId, isDeviceReady, isPlaying, currentlyPlayingTrack, tracks, reconnectSpotifyDevice, handlePlayTrack, handlePlaybackError]);
-
+    }, [isPremium, deviceId, isDeviceReady, isPlaying, handlePlaybackError]);
 
     // Handle audio errors
     const handleAudioError = useCallback((e: Event) => {
@@ -645,24 +365,6 @@ const PlaylistDetail: React.FC = () => {
         setIsPlaying(false);
         alert("Error playing track. The preview may not be available.");
     }, [setIsPlaying]);
-
-    // Setup audio element and listeners
-    useEffect(() => {
-        if (!audioRef.current) {
-            audioRef.current = new Audio();
-            audioRef.current.addEventListener('ended', handleTrackEnded);
-            audioRef.current.addEventListener('error', handleAudioError);
-        }
-
-        return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.removeEventListener('ended', handleTrackEnded);
-                audioRef.current.removeEventListener('error', handleAudioError);
-                audioRef.current = null;
-            }
-        };
-    }, [handleTrackEnded, handleAudioError]);
 
     // Update handleMainPlayButtonClick to use playPlaylistOnDevice
     const handleMainPlayButtonClick = useCallback(() => {
@@ -731,7 +433,7 @@ const PlaylistDetail: React.FC = () => {
     }, [lastTapTime, handlePlayTrack]);
 
     // Replace the existing handleBackClick function with this:
-    const handleBackClick = () => {
+    const handleBackClick = useCallback(() => {
         // When going back, preserve our premium status by explicitly setting it
         if (isPremium) {
             localStorage.setItem('spotify_is_premium', 'true');
@@ -742,7 +444,353 @@ const PlaylistDetail: React.FC = () => {
         navigate('/dashboard', { 
             replace: true  // Replace the current history entry
         });
-    };
+    }, [isPremium, isDeviceReady, navigate]);
+
+    const reconnectSpotifyDevice = useCallback(async () => {
+        console.log('Attempting to reconnect Spotify device...');
+
+        // Check if player instance already exists from Dashboard
+        const existingPlayer = player;
+        
+        if (existingPlayer) {
+            console.log('Using existing player instance for reconnection');
+            try {
+                const success = await existingPlayer.connect();
+                if (success) {
+                    console.log('Successfully reconnected existing player');
+                    setIsDeviceReady(true);
+                    return true;
+                } else {
+                    console.error('Failed to reconnect existing player');
+                    return false;
+                }
+            } catch (err) {
+                console.error('Error reconnecting existing player:', err);
+                return false;
+            }
+        }
+        
+        // Fall back to creating new player only if one doesn't exist already
+        console.log('No existing player, creating new instance');
+        
+        // Check if Spotify SDK is available
+        if (!window.Spotify || !window.Spotify.Player) {
+            console.error('Spotify SDK not available');
+            setIsPremium(false);
+            return false;
+        }
+
+        // Get fresh access token
+        const token = localStorage.getItem('accessToken');
+        if (!token) {
+            console.error('No access token available');
+            setIsPremium(false);
+            return false;
+        }
+
+        try {
+            // Create a new player instance
+            const newPlayer = new window.Spotify.Player({
+                name: 'Music Shuffler',
+                getOAuthToken: (cb: (token: string) => void) => { cb(token); },
+                volume: 0.5
+            });
+
+            // Connect and update state
+            const success = await newPlayer.connect();
+            if (success) {
+                // Add listeners for state changes
+                newPlayer.addListener('ready', ({ device_id }: { device_id: string }) => {
+                    console.log('Device reconnected with ID:', device_id);
+                    setDeviceId(device_id);
+                    setPlayer(newPlayer);
+                    setIsDeviceReady(true);
+
+                    // Update localStorage to reflect reconnection
+                    localStorage.setItem('spotify_device_id', device_id);
+                    localStorage.setItem('spotify_player_ready', 'true');
+                });
+
+                return true;
+            } else {
+                console.error('Failed to connect new Spotify player');
+                return false;
+            }
+        } catch (error) {
+            console.error('Error reconnecting Spotify device:', error);
+            return false;
+        }
+    }, [player]);
+
+    // ALL USEEFFECT HOOKS HERE
+    useEffect(() => {
+        const loadPlaylistData = async () => {
+            if (!id) return;
+
+            setLoading(true);
+            try {
+                const playlistData = await fetchPlaylistDetails(id);
+                setPlaylist(playlistData);
+
+                const tracksData = await fetchPlaylistTracks(id);
+                setTracks(tracksData.items || []);
+            } catch (error) {
+                console.error('Error loading playlist:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadPlaylistData();
+    }, [id]);
+
+    // Add Spotify Web Playback SDK initialization
+    useEffect(() => {
+        // Access the player from the Dashboard component if available
+        const checkForPlayer = () => {
+            if (window.Spotify && window.Spotify.Player) {
+                // Player is already initialized by Dashboard
+                console.log('Spotify SDK already initialized, checking for device');
+
+                // Check localStorage for player info
+                const existingDeviceId = localStorage.getItem('spotify_device_id');
+                const isPremiumUser = localStorage.getItem('spotify_is_premium') === 'true';
+
+                if (existingDeviceId) {
+                    console.log('Found existing device ID:', existingDeviceId);
+                    setDeviceId(existingDeviceId);
+                    setIsPremium(isPremiumUser);
+                    setIsDeviceReady(true);
+                }
+            }
+        };
+
+        // Check immediately and also after a short delay to ensure Dashboard has time to initialize
+        checkForPlayer();
+        const timer = setTimeout(checkForPlayer, 1000);
+
+        return () => clearTimeout(timer);
+    }, []);
+
+    useEffect(() => {
+        if (!isPremium || !deviceId) return;
+
+        console.log('Setting up device keep-alive check (3-second interval)');
+
+        // Keep-alive ping every 3 seconds (same as Dashboard)
+        const keepAliveInterval = setInterval(() => {
+            if (player) {
+                // Get player state to keep connection alive - same approach as Dashboard
+                player.getCurrentState()
+                    .then((state: any) => {
+                        if (!state) {
+                            console.log('Device connection lost, reconnecting...');
+                            setIsDeviceReady(false);
+
+                            // Attempt reconnection
+                            player.connect()
+                                .then((success: boolean) => {
+                                    if (success) {
+                                        console.log('Successfully reconnected player');
+                                        setIsDeviceReady(true);
+
+                                        // Re-transfer playback to this device
+                                        if (deviceId) {
+                                            transferPlaybackToDevice(deviceId)
+                                                .then(() => console.log('Playback re-transferred successfully'))
+                                                .catch(err => console.error('Error re-transferring playback:', err));
+                                        }
+                                    }
+                                });
+                        } else {
+                            setIsDeviceReady(true);
+                        }
+                    });
+            }
+        }, 3000); // Check every 3 seconds - critical for preventing disconnection
+
+        return () => {
+            clearInterval(keepAliveInterval);
+        };
+    }, [player, isPremium, deviceId]);
+
+    useEffect(() => {
+        // Skip if player isn't available
+        if (!player) return;
+
+        console.log('Setting up player state listener');
+
+        const stateListener = (state: any) => {
+            if (!state) {
+                console.log('Player state is null, device likely disconnected');
+                setIsDeviceReady(false);
+                return;
+            }
+
+            // Update UI state based on actual player state
+            setIsPlaying(!state.paused);
+
+            // Update current track if it's different
+            if (state.track_window?.current_track) {
+                const spotifyTrack = state.track_window.current_track;
+                setCurrentlyPlayingTrack(spotifyTrack.id);
+            }
+        };
+
+        player.addListener('player_state_changed', stateListener);
+
+        return () => {
+            player.removeListener('player_state_changed', stateListener);
+        };
+    }, [player]);
+
+    // Add this effect to fix reconnection issues
+    useEffect(() => {
+        // When component mounts, verify that the device is still active
+        if (isPremium && deviceId) {
+            // Immediately check device status
+            fetch('https://api.spotify.com/v1/me/player/devices', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const deviceActive = data.devices &&
+                        data.devices.some((device: any) => device.id === deviceId);
+
+                    if (!deviceActive) {
+                        console.log('Device inactive on component mount, reconnecting...');
+                        setIsDeviceReady(false);
+                        reconnectSpotifyDevice();
+                    } else {
+                        setIsDeviceReady(true);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error checking device status:', err);
+                });
+        }
+    }, [isPremium, deviceId, reconnectSpotifyDevice]);
+
+    useEffect(() => {
+        // Add specific mobile touch handling
+        if ('ontouchstart' in window) {
+            const trackItems = document.querySelectorAll('.track-item');
+            
+            trackItems.forEach(item => {
+                // Add touch feedback
+                item.addEventListener('touchstart', () => {
+                    item.classList.add('touch-active');
+                });
+                
+                item.addEventListener('touchend', () => {
+                    setTimeout(() => {
+                        item.classList.remove('touch-active');
+                    }, 150);
+                });
+                
+                item.addEventListener('touchcancel', () => {
+                    item.classList.remove('touch-active');
+                });
+            });
+            
+            // Add this class to the main container
+            document.querySelector('.playlist-detail-container')?.classList.add('touch-device');
+        }
+        
+        // Handle main content scroll events
+        const handleScroll = () => {
+            const container = document.querySelector('.playlist-detail-container');
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            
+            // Show premium badge when scrolled past header (200px threshold)
+            if (scrollTop > 200) {
+                setIsScrolled(true);
+                container?.classList.add('scrolled');
+            } else {
+                setIsScrolled(false);
+                container?.classList.remove('scrolled');
+            }
+        };
+        
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        document.querySelector('.playlist-detail-container')?.addEventListener('scroll', handleScroll, { passive: true });
+        
+        return () => {
+            window.removeEventListener('scroll', handleScroll);
+            document.querySelector('.playlist-detail-container')?.removeEventListener('scroll', handleScroll);
+        };
+    }, []);
+
+    // Add progress tracking effect - MOVED HERE TO COMPLY WITH HOOKS RULES
+    useEffect(() => {
+        if (isPremium && isPlaying && currentlyPlayingTrack) {
+            const interval = setInterval(() => {
+                // Get current playback state from Spotify
+                fetch('https://api.spotify.com/v1/me/player', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.item && data.progress_ms) {
+                        const progressPercent = (data.progress_ms / data.item.duration_ms) * 100;
+                        setCurrentProgress(progressPercent);
+                        setCurrentPlaybackTime(data.progress_ms / 1000);
+                    }
+                })
+                .catch(err => console.error('Error getting playback state:', err));
+            }, 1000);
+            
+            setProgressInterval(interval);
+            return () => clearInterval(interval);
+        } else if (!isPremium && isPlaying && audioRef.current) {
+            // For preview mode, track progress manually
+            const interval = setInterval(() => {
+                if (audioRef.current) {
+                    const currentTime = audioRef.current.currentTime;
+                    const duration = audioRef.current.duration || 30; // 30 seconds for preview
+                    const progressPercent = (currentTime / duration) * 100;
+                    setCurrentProgress(progressPercent);
+                    setCurrentPlaybackTime(currentTime);
+                }
+            }, 1000);
+            
+            setProgressInterval(interval);
+            return () => clearInterval(interval);
+        } else {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                setProgressInterval(null);
+            }
+        }
+    }, [isPremium, isPlaying, currentlyPlayingTrack, progressInterval]);
+
+    // Reset progress when track changes - MOVED HERE TO COMPLY WITH HOOKS RULES
+    useEffect(() => {
+        setCurrentProgress(0);
+        setCurrentPlaybackTime(0);
+    }, [currentlyPlayingTrack]);
+
+    // Setup audio element and listeners
+    useEffect(() => {
+        if (!audioRef.current) {
+            audioRef.current = new Audio();
+            audioRef.current.addEventListener('ended', handleTrackEnded);
+            audioRef.current.addEventListener('error', handleAudioError);
+        }
+
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.removeEventListener('ended', handleTrackEnded);
+                audioRef.current.removeEventListener('error', handleAudioError);
+                audioRef.current = null;
+            }
+        };
+    }, [handleTrackEnded, handleAudioError]);
 
     // Add scroll detection to know when user is scrolling the tracks list
     useEffect(() => {
@@ -791,7 +839,7 @@ const PlaylistDetail: React.FC = () => {
         </div>
     );
 
-    // Enhanced loading state
+    // EARLY RETURNS AFTER ALL HOOKS
     if (loading) {
         return (
             <div className="playlist-detail-container">
@@ -809,13 +857,21 @@ const PlaylistDetail: React.FC = () => {
         return <div className="playlist-error">Playlist not found</div>;
     }
 
+    const displayTracks = isShuffled ? shuffledTracks : tracks;
+
     return (
-        <div className="playlist-detail-container">
-            <button
-                className="back-button"
-                onClick={handleBackClick}
-                aria-label="Go back"
-            >
+        <div className={`playlist-detail-container ${isScrolled ? 'scrolled' : ''}`}>
+            {/* Floating Premium Badge - Only show when scrolled and user is premium */}
+            {isPremium && isScrolled && (
+                <span className="premium-badge">
+                    <svg viewBox="0 0 24 24" width="12" height="12">
+                        <path fill="currentColor" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                    </svg>
+                    Premium
+                </span>
+            )}
+            
+            <button className="back-button" onClick={handleBackClick}>
                 <svg viewBox="0 0 24 24" width="22" height="22">
                     <path fill="currentColor" d="M15.957 2.793a1 1 0 010 1.414L8.164 12l7.793 7.793a1 1 0 11-1.414 1.414L5.336 12l9.207-9.207a1 1 0 011.414 0z" />
                 </svg>
@@ -824,264 +880,200 @@ const PlaylistDetail: React.FC = () => {
             <div className="playlist-header">
                 <div className="playlist-cover">
                     <ImageWithFallback
-                        src={playlist.images?.[0]?.url}
+                        src={playlist.images?.[0]?.url || ''}
                         alt={playlist.name}
                         className="playlist-image"
                     />
                 </div>
-
                 <div className="playlist-info">
-                    <span className="playlist-type">Playlist</span>
+                    <p className="playlist-type">Playlist</p>
                     <h1 className="playlist-title">{playlist.name}</h1>
-                    <p className="playlist-description">{playlist.description || 'No description available'}</p>
+                    <p className="playlist-description">{playlist.description}</p>
                     <div className="playlist-meta">
-                        <span>{playlist.owner?.display_name}</span>
-                        <span>{playlist.followers?.total || 0} followers</span>
-                        <span>{tracks.length} tracks</span>
+                        <span>{playlist.tracks.total} tracks</span>
+                        <span>{playlist.followers.total} followers</span>
                     </div>
                 </div>
             </div>
 
             <div className="playlist-actions-container">
-                <button
-                    className="play-button"
-                    onClick={handleMainPlayButtonClick}
-                    aria-label={isPlaying ? "Pause playlist" : "Play playlist"}
-                >
-                    {isPlaying ? (
-                        <svg viewBox="0 0 16 16" width="32" height="32">
-                            <rect x="3" y="2" width="4" height="12" fill="currentColor" />
-                            <rect x="9" y="2" width="4" height="12" fill="currentColor" />
-                        </svg>
-                    ) : (
-                        <svg viewBox="0 0 16 16" width="32" height="32">
-                            <path fill="currentColor" d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" />
-                        </svg>
-                    )}
-                </button>
-
-                <button
-                    className={`shuffle-button ${isShuffled ? 'active' : ''}`}
-                    onClick={toggleShuffle}
-                    aria-label={isShuffled ? "Disable shuffle" : "Enable shuffle"}
-                >
-                    <svg viewBox="0 0 16 16" width="16" height="16">
-                        <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
+                <button className="play-button" onClick={handleMainPlayButtonClick}>
+                    <svg viewBox="0 0 24 24" width="24" height="24">
+                        <path fill="currentColor" d="M8 5v14l11-7z" />
                     </svg>
                 </button>
 
-                {/* Add Premium badge */}
+                <button 
+                    className={`shuffle-button ${isShuffled ? 'active' : ''}`}
+                    onClick={toggleShuffle}
+                >
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                        <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+                    </svg>
+                </button>
+
                 {isPremium && (
-                    <div className="premium-badge">
-                        <svg viewBox="0 0 16 16" width="16" height="16">
-                            <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
+                    <button className="download-button">
+                        <svg viewBox="0 0 24 24" width="18" height="18">
+                            <path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
                         </svg>
-                        <span>Premium</span>
-                    </div>
+                    </button>
                 )}
+
+                <button className="more-options-button">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                        <path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                    </svg>
+                </button>
+
+                <div className={`device-status ${isDeviceReady ? 'connected' : 'disconnected'}`}>
+                    <div className={`status-dot ${isDeviceReady ? 'connected' : 'disconnected'}`}></div>
+                    {isDeviceReady ? (
+                        <span>Connected to Spotify</span>
+                    ) : (
+                        <span>Device disconnected</span>
+                    )}
+                </div>
             </div>
 
             <div className="playlist-tracks">
                 <div className="tracks-header">
-                    <div className="track-number">#</div>
-                    <div className="track-title">Title</div>
-                    <div className="track-album">Album</div>
-                    <div className="track-duration">Duration</div>
+                    <span>#</span>
+                    <span>Title</span>
+                    <span>Album</span>
+                    <span>Duration</span>
                 </div>
 
-                <div className="tracks-list">
-                    {tracks.map((item, index) => (
-                        <div
-                            key={item.track.id + index}
-                            className={`track-item ${currentlyPlayingTrack === item.track.id ? 'active' : ''}`}
-                            onClick={() => handlePlayTrack(item.track)}
-                            onTouchStart={(e) => handleTrackTap(item.track, e)}
-                            onTouchEnd={(e) => e.preventDefault()}
-                            tabIndex={0}
-                            role="button"
-                            aria-pressed={currentlyPlayingTrack === item.track.id}
-                            aria-label={`Play ${item.track.name} by ${item.track.artists.map((a: { name: string }) => a.name).join(', ')}`}
-                        >
-                            <div className="track-number">
-                                {currentlyPlayingTrack === item.track.id && isPlaying ? (
-                                    <div className="now-playing-icon">
-                                        <div className="bar"></div>
-                                        <div className="bar"></div>
-                                        <div className="bar"></div>
-                                    </div>
-                                ) : (
-                                    index + 1
-                                )}
-                            </div>
-
-                            <div className="track-title-section">
-                                <ImageWithFallback
-                                    src={item.track.album.images?.[0]?.url}
-                                    alt={item.track.album.name}
-                                    className="track-image"
-                                />
-                                <div className="play-icon">
-                                    {currentlyPlayingTrack === item.track.id && isPlaying ? (
-                                        <svg viewBox="0 0 16 16" width="16" height="16">
-                                            <rect x="3" y="2" width="4" height="12" fill="currentColor" />
-                                            <rect x="9" y="2" width="4" height="12" fill="currentColor" />
-                                        </svg>
-                                    ) : (
-                                        <svg viewBox="0 0 16 16" width="16" height="16">
-                                            <path fill="currentColor" d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" />
-                                        </svg>
-                                    )}
-                                </div>
-                                <div className="track-info">
-                                    <div className="track-name">{item.track.name}</div>
-                                    <div className="track-artist">{item.track.artists.map((a: { name: string }) => a.name).join(', ')}</div>
-                                </div>
-                            </div>
-                            <div className="track-album">{item.track.album.name}</div>
-                            <div className="track-duration">{formatDuration(item.track.duration_ms)}</div>
+                {displayTracks.map((item, index) => (
+                    <div
+                        key={item.track.id}
+                        className={`track-item ${currentlyPlayingTrack === item.track.id ? 'active' : ''}`}
+                        onClick={() => handlePlayTrack(item.track)}
+                        onTouchStart={(e) => handleTrackTap(item.track, e)}
+                    >
+                        <div className="track-number">{index + 1}</div>
+                        <div className="play-icon">
+                            <svg viewBox="0 0 24 24" width="12" height="12">
+                                <path fill="currentColor" d="M8 5v14l11-7z" />
+                            </svg>
                         </div>
-                    ))}
-                </div>
+                        <div className="track-title-section">
+                            <ImageWithFallback
+                                src={item.track.album.images?.[0]?.url || ''}
+                                alt={item.track.name}
+                                className="track-image"
+                            />
+                            <div className="track-info">
+                                <p className="track-name">{item.track.name}</p>
+                                <p className="track-artist">
+                                    {item.track.artists.map(artist => artist.name).join(', ')}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="track-album">{item.track.album.name}</div>
+                        <div className="track-duration">{formatDuration(item.track.duration_ms)}</div>
+                    </div>
+                ))}
             </div>
 
-            {/* Playback controls footer */}
-            <footer className="spotify-footer">
-              <div className="now-playing">
-                <div className="track-info">
-                  <div className="track-image">
-                    {currentlyPlayingTrack ? (
-                      <img
-                        src={
-                          currentlyPlayingTrack && 
-                          tracks.find(item => item.track.id === currentlyPlayingTrack)?.track.album.images?.[0]?.url || 
-                          `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                            tracks.find(item => item.track.id === currentlyPlayingTrack)?.track.artists[0].name || "Music"
-                          )}&background=6c2dc7&color=fff&size=56&bold=true&rounded=true`
-                        }
-                        alt="Album artwork"
-                      />
-                    ) : (
-                      <div className="music-placeholder-icon">
-                        <svg viewBox="0 0 24 24" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-                            fill="#6c2dc7" />
+            {/* Spotify-like footer with progress bar */}
+            <div className="spotify-footer">
+                <div className="now-playing">
+                    <div className="track-info">
+                        <div className="track-image">
+                            {currentlyPlayingTrack ? (
+                                <ImageWithFallback
+                                    src={playlist.tracks.items.find((t: any) => t.track.id === currentlyPlayingTrack)?.track.album.images?.[0]?.url || ''}
+                                    alt="Now Playing"
+                                    className="track-image"
+                                />
+                            ) : (
+                                <div className="music-placeholder-icon">
+                                    <svg viewBox="0 0 24 24" width="24" height="24">
+                                        <path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                                    </svg>
+                                </div>
+                            )}
+                        </div>
+                        <div className="track-details">
+                            <div className="track-name">
+                                {currentlyPlayingTrack ? 
+                                    playlist.tracks.items.find((t: any) => t.track.id === currentlyPlayingTrack)?.track.name || 'Unknown Track' : 
+                                    'Select a track'
+                                }
+                            </div>
+                            <div className="track-artist">
+                                {currentlyPlayingTrack ? 
+                                    playlist.tracks.items.find((t: any) => t.track.id === currentlyPlayingTrack)?.track.artists.map((artist: any) => artist.name).join(', ') || 'Unknown Artist' : 
+                                    'No track playing'
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <button className="like-button">
+                        <svg viewBox="0 0 24 24" width="16" height="16">
+                            <path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
                         </svg>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="track-details">
-                    <div className="track-name">
-                      {currentlyPlayingTrack ? 
-                        tracks.find(item => item.track.id === currentlyPlayingTrack)?.track.name : 
-                        'Select a track'}
-                    </div>
-                    <div className="track-artist">
-                      {currentlyPlayingTrack ?
-                        tracks.find(item => item.track.id === currentlyPlayingTrack)?.track.artists.map(artist => artist.name).join(', ') :
-                        'to start playing'}
-                    </div>
-                  </div>
-                  
-                  <button className="like-button">
-                    <svg viewBox="0 0 16 16" width="16" height="16">
-                      <path fill="currentColor" d="M1.69 2A4.582 4.582 0 008 2.023 4.583 4.583 0 0011.88.817h.002a4.618 4.618 0 013.782 3.65v.003a4.543 4.543 0 01-1.011 3.84L9.35 14.629a1.765 1.765 0 01-2.093.464 1.762 1.762 0 01-.605-.463L1.348 8.309A4.582 4.582 0 011.689 2zm3.158.252A3.082 3.082 0 002.49 7.337l.005.005L7.8 13.664a.264.264 0 00.311.069.262.262 0 00.09-.069l5.312-6.33a3.043 3.043 0 00.68-2.573 3.118 3.118 0 00-2.551-2.463 3.079 3.079 0 00-2.612.816l-.007.007a1.501 1.501 0 01-2.045 0l-.009-.008a3.082 3.082 0 00-2.121-.861z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div className="player-controls">
-                <div className="control-buttons">
-                  <button className="control-button" onClick={handlePreviousTrack}>
-                    <svg viewBox="0 0 16 16" width="16" height="16">
-                      <path d="M3.3 1a.7.7 0 01.7.7v5.15l9.95-5.744a.7.7 0 011.05.606v12.575a.7.7 0 01-1.05.607L4 9.149V14.3a.7.7 0 01-.7.7H1.7a.7.7 0 01-.7-.7V1.7a.7.7 0 01.7-.7h1.6z" fill="currentColor"></path>
-                    </svg>
-                  </button>
-
-                  <button className="control-button play-pause-button" onClick={handlePlayPauseClick}>
-                    {isPlaying ? (
-                      <svg viewBox="0 0 16 16" width="16" height="16">
-                        <path fill="currentColor" d="M2.7 1a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7H2.7zm8 0a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-2.6z"></path>
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 16 16" width="16" height="16">
-                        <path d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" fill="currentColor"></path>
-                      </svg>
-                    )}
-                  </button>
-
-                  <button className="control-button" onClick={handleNextTrack}>
-                    <svg viewBox="0 0 16 16" width="16" height="16">
-                      <path d="M12.7 1a.7.7 0 00-.7.7v5.15L2.05 1.107A.7.7 0 001 1.712v12.575a.7.7 0 001.05.607L12 9.149V14.3a.7.7 0 00.7.7h1.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-1.6z" fill="currentColor"></path>
-                    </svg>
-                  </button>
-
-                  {/* Premium badge in control buttons area - match Dashboard layout */}
-                  {isPremium && (
-                    <button className="control-button premium-button">
-                      <svg viewBox="0 0 16 16" width="16" height="16">
-                        <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
-                      </svg>
-                      <span>Premium</span>
                     </button>
-                  )}
                 </div>
 
-                <div className="playback-bar">
-                  <span className="playback-time">0:00</span>
-                  <div className="progress-bar">
-                    <div className="progress-bar-bg">
-                      <div className="progress-bar-fill" style={{
-                        width: currentProgress ? `${currentProgress}%` : '0%'
-                      }}></div>
+                <div className="player-controls">
+                    <div className="control-buttons">
+                        <button className="control-button" onClick={toggleShuffle}>
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+                            </svg>
+                        </button>
+                        <button className="control-button" onClick={handlePreviousTrack}>
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                            </svg>
+                        </button>
+                        <button className="play-pause-button" onClick={handlePlayPauseClick}>
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path fill="currentColor" d={isPlaying ? "M6 19h4V5H6v14zm8-14v14h4V5h-4z" : "M8 5v14l11-7z"} />
+                            </svg>
+                        </button>
+                        <button className="control-button" onClick={handleNextTrack}>
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                            </svg>
+                        </button>
+                        <button className="control-button">
+                            <svg viewBox="0 0 24 24" width="16" height="16">
+                                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                            </svg>
+                        </button>
                     </div>
-                  </div>
-                  <span className="playback-time">
-                    {currentlyPlayingTrack && tracks.find(item => item.track.id === currentlyPlayingTrack) ?
-                      formatDuration(tracks.find(item => item.track.id === currentlyPlayingTrack)!.track.duration_ms) :
-                      '0:00'}
-                  </span>
+
+                    <div className="playback-bar">
+                        <div className="playback-time">{formatTime(currentPlaybackTime)}</div>
+                        <div className="progress-bar" onClick={handleProgressClick}>
+                            <div className="progress-bar-bg">
+                                <div className="progress-bar-fill" style={{ width: `${currentProgress}%` }}></div>
+                            </div>
+                        </div>
+                        <div className="playback-time">
+                            {currentlyPlayingTrack ? formatTime((playlist.tracks.items.find((t: any) => t.track.id === currentlyPlayingTrack)?.track.duration_ms || 0) / 1000) : '0:00'}
+                        </div>
+                    </div>
                 </div>
-              </div>
-            </footer>
 
-            {/* Add the same premium badge as Dashboard */}
-            {isPremium ? (
-              <div className="premium-badge">
-                <svg viewBox="0 0 16 16" width="16" height="16">
-                  <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
-                </svg>
-                <span>Premium Active</span>
-              </div>
-            ) : (
-              <div className="preview-badge">
-                <span>Using Preview Mode</span>
-                <a href="https://www.spotify.com/premium/" target="_blank" rel="noopener noreferrer">
-                  Get Premium
-                </a>
-              </div>
-            )}
-
-            {/* Device reconnection indicator - identical to Dashboard */}
-            {isPremium && !isDeviceReady && (
-              <div className="device-reconnecting">
-                <svg viewBox="0 0 16 16" width="16" height="16" className="spinner">
-                  <path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm3.5 7.5h-2v2a.5.5 0 01-1 0v-2h-2a.5.5 0 010-1h2v-2a.5.5 0 011 0v2h2a.5.5 0 010 1z" />
-                </svg>
-                <span>Reconnecting player...</span>
-              </div>
-            )}
+                <div className="volume-controls">
+                    <button className="control-button">
+                        <svg viewBox="0 0 24 24" width="16" height="16">
+                            <path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                        </svg>
+                    </button>
+                    <div className="volume-bar">
+                        <div className="volume-bg">
+                            <div className="volume-fill" style={{ width: '70%' }}></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
-
-// Helper function for formatting duration
-const formatDuration = (ms: number): string => {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(0);
-    return `${minutes}:${parseInt(seconds) < 10 ? '0' : ''}${seconds}`;
-};
-
 
 export default PlaylistDetail;

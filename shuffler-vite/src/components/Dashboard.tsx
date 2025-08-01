@@ -7,11 +7,25 @@ import {
     playTrackOnDevice,
     playPlaylistOnDevice  // Add this new import
 } from '../api/spotify';
+import { Track } from '../types/spotify.types';
 import PlaylistCard from './Playlist/PlaylistCard';
 import SmartGrouping from './Playlist/SmartGrouping';
 import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 import ImageWithFallback from './common/ImageWithFallback';
+
+// Define local DashboardTrack interface for internal use
+interface DashboardTrack {
+    id: string;
+    name: string;
+    artists: Array<{ name: string }>;
+    album: {
+        name: string;
+        images?: Array<{ url: string }>;
+    };
+    duration_ms: number;
+    preview_url?: string;
+}
 
 // Add at the top, after your imports
 declare global {
@@ -25,17 +39,7 @@ declare global {
 }
 
 // Define Track interface
-interface Track {
-    id: string;
-    name: string;
-    artists: Array<{ name: string }>;
-    album: {
-        name: string;
-        images?: Array<{ url: string }>;
-    };
-    duration_ms: number;
-    preview_url?: string;
-}
+// (Removed - now using imported Track from types/spotify.types)
 
 // Add this type definition near your other interfaces
 interface SpotifyPlayerState {
@@ -84,10 +88,10 @@ const Dashboard: React.FC = () => {
     const [userAvatar, setUserAvatar] = useState<string | null>(null);
     const [greeting, setGreeting] = useState<string>('Good morning');
     // New state variables for playback
-    const [currentlyPlayingTrack, setCurrentlyPlayingTrack] = useState<Track | null>(null);
+    const [currentlyPlayingTrack, setCurrentlyPlayingTrack] = useState<DashboardTrack | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentPlaylist, setCurrentPlaylist] = useState<any>(null);
-    const [playlistTracks, setPlaylistTracks] = useState<Array<{ track: Track }>>([]);
+    const [playlistTracks, setPlaylistTracks] = useState<Array<{ track: DashboardTrack }>>([]);
     const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(-1);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -98,6 +102,13 @@ const Dashboard: React.FC = () => {
 
     // Add this to your state variables
     const [isDeviceReady, setIsDeviceReady] = useState<boolean>(false);
+    const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+
+    // Add progress tracking state
+    const [progress, setProgress] = useState<number>(0);
+    const [duration, setDuration] = useState<number>(0);
+    const [currentPosition, setCurrentPosition] = useState<number>(0);
+    const [isScrolled, setIsScrolled] = useState<boolean>(false);
 
     const navigate = useNavigate();
 
@@ -145,6 +156,55 @@ const Dashboard: React.FC = () => {
 
         loadData();
     }, [navigate]);
+
+    // Simplified scroll detection for both header background and premium badge
+    useEffect(() => {
+        const checkScroll = () => {
+            let isScrolled = false;
+            
+            // Check window scroll (mobile)
+            if (window.scrollY > 50) {
+                isScrolled = true;
+            }
+            
+            // Check spotify-main scroll (desktop grid layout)
+            const spotifyMain = document.querySelector('.spotify-main');
+            if (spotifyMain && spotifyMain.scrollTop > 50) {
+                isScrolled = true;
+            }
+            
+            // Update header background for main content (separate logic for header styling)
+            const mainContent = document.querySelector('.spotify-main');
+            if (mainContent) {
+                if (mainContent.scrollTop > 10) {
+                    mainContent.classList.add('scrolled');
+                } else {
+                    mainContent.classList.remove('scrolled');
+                }
+            }
+            
+            setIsScrolled(isScrolled);
+        };
+
+        // Add scroll listeners
+        window.addEventListener('scroll', checkScroll, { passive: true });
+        
+        // Add listener to spotify-main for desktop
+        const spotifyMain = document.querySelector('.spotify-main');
+        if (spotifyMain) {
+            spotifyMain.addEventListener('scroll', checkScroll, { passive: true });
+        }
+        
+        // Initial check with a small delay to ensure DOM is ready
+        setTimeout(checkScroll, 100);
+        
+        return () => {
+            window.removeEventListener('scroll', checkScroll);
+            if (spotifyMain) {
+                spotifyMain.removeEventListener('scroll', checkScroll);
+            }
+        };
+    }, []);
 
     // Add this useEffect for initializing the Spotify Web SDK
     useEffect(() => {
@@ -197,7 +257,7 @@ const Dashboard: React.FC = () => {
 
                 // Add connection state listener
                 spotifyPlayer.addListener('player_state_changed', (state: SpotifyPlayerState | null) => {
-                    console.log('Player state changed:', state ? 'State received' : 'No state (device likely disconnected)');
+                    console.log('Dashboard: Player state changed:', state ? 'State received' : 'No state (device likely disconnected)');
 
                     if (!state) {
                         setIsDeviceReady(false);
@@ -206,7 +266,7 @@ const Dashboard: React.FC = () => {
 
                     // Only process state changes if device is properly registered
                     if (!deviceId || !isDeviceReady) {
-                        console.log('Device not ready, ignoring state change');
+                        console.log('Dashboard: Device not ready, ignoring state change');
                         return;
                     }
 
@@ -215,6 +275,7 @@ const Dashboard: React.FC = () => {
 
                     // Update UI
                     setIsPlaying(!state.paused);
+                    console.log('Dashboard: Setting isPlaying to:', !state.paused);
 
                     // Track info
                     if (state.track_window?.current_track) {
@@ -227,7 +288,17 @@ const Dashboard: React.FC = () => {
                             duration_ms: spotifyTrack.duration_ms,
                             preview_url: '' // We don't have this from state
                         };
+                        console.log('Dashboard: Setting currentlyPlayingTrack to:', currentTrack.id, currentTrack.name);
                         setCurrentlyPlayingTrack(currentTrack);
+                        setDuration(spotifyTrack.duration_ms);
+                    }
+
+                    // Update progress
+                    if (state.position !== undefined && state.duration !== undefined) {
+                        setCurrentPosition(state.position);
+                        if (state.duration > 0) {
+                            setProgress((state.position / state.duration) * 100);
+                        }
                     }
                 });
 
@@ -276,60 +347,41 @@ const Dashboard: React.FC = () => {
         };
     }, [navigate, player]);
 
-    useEffect(() => {
-  // Add scroll detection for header background
-  const mainContent = document.querySelector('.spotify-main');
-  
-  const handleScroll = () => {
-    if (mainContent) {
-      if (mainContent.scrollTop > 10) {
-        mainContent.classList.add('scrolled');
-      } else {
-        mainContent.classList.remove('scrolled');
-      }
-    }
-  };
-  
-  mainContent?.addEventListener('scroll', handleScroll, { passive: true });
-  
-  return () => {
-    mainContent?.removeEventListener('scroll', handleScroll);
-  };
-}, []);
+
 
     useEffect(() => {
-            // Skip if player is already initialized or user isn't premium
-    if (player || !isPremium) return;
-    
-    // Try to reconnect if we have a device ID but no player
-    const storedDeviceId = localStorage.getItem('spotify_device_id');
-    if (isPremium && storedDeviceId && !player) {
-        console.log('Attempting to reconnect to previous Spotify session');
+        // Skip if player is already initialized or user isn't premium
+        if (player || !isPremium) return;
         
-        // Verify the device is still active
-        fetch('https://api.spotify.com/v1/me/player/devices', {
-            headers: {
-                'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            const deviceActive = data.devices && 
-                data.devices.some((device: any) => device.id === storedDeviceId);
+        // Try to reconnect if we have a device ID but no player
+        const storedDeviceId = localStorage.getItem('spotify_device_id');
+        if (isPremium && storedDeviceId && !player) {
+            console.log('Attempting to reconnect to previous Spotify session');
             
-            if (deviceActive) {
-                console.log('Previous device still active, restoring session');
-                setDeviceId(storedDeviceId);
-                setIsDeviceReady(true);
-            } else {
-                console.log('Previous device no longer active, will reinitialize');
-                // The SDK initialization will handle creating a new device
-            }
-        })
-        .catch(err => {
-            console.error('Error checking device status:', err);
-        });
-    }
+            // Verify the device is still active
+            fetch('https://api.spotify.com/v1/me/player/devices', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                const deviceActive = data.devices && 
+                    data.devices.some((device: any) => device.id === storedDeviceId);
+                
+                if (deviceActive) {
+                    console.log('Previous device still active, restoring session');
+                    setDeviceId(storedDeviceId);
+                    setIsDeviceReady(true);
+                } else {
+                    console.log('Previous device no longer active, will reinitialize');
+                    // The SDK initialization will handle creating a new device
+                }
+            })
+            .catch(err => {
+                console.error('Error checking device status:', err);
+            });
+        }
 
         console.log('Setting up device keep-alive interval');
 
@@ -393,7 +445,7 @@ const Dashboard: React.FC = () => {
         }
     };
 
-    const fallbackToPreview = (track?: Track) => {
+    const fallbackToPreview = (track?: DashboardTrack) => {
         // Switch to preview mode when Premium playback fails completely
         setIsPremium(false);
 
@@ -411,91 +463,169 @@ const Dashboard: React.FC = () => {
                     });
             }
         } else if (track) {
-            alert("No preview available and Premium playback failed. Please refresh the page.");
+            console.warn("No preview available for track:", track.name);
+            alert("No preview available for this track and Premium playback failed. Please try a different track or refresh the page.");
+        } else {
+            console.warn("No track provided to fallbackToPreview");
+            alert("Premium playback failed and no track information available. Please refresh the page.");
         }
     };
 
 
+    // Handle track context from SmartGrouping for navigation
+    const handleTrackChange = useCallback((tracks: Track[], currentIndex: number) => {
+        console.log('Dashboard: Received track context from SmartGrouping:', tracks.length, 'tracks, current index:', currentIndex);
+        
+        // Convert Track[] to DashboardTrack[] for navigation
+        const dashboardTracks = tracks.map(track => ({
+            id: track.id,
+            name: track.name,
+            artists: [{ name: track.artist }],
+            album: {
+                name: track.album,
+                images: []
+            },
+            duration_ms: track.duration * 1000,
+            preview_url: undefined
+        }));
+        
+        const playlistTracks = dashboardTracks.map(track => ({ track }));
+        setPlaylistTracks(playlistTracks);
+        setCurrentTrackIndex(currentIndex);
+        
+        // Set a virtual SmartGrouping playlist context
+        setCurrentPlaylist({ 
+            id: 'smart-grouping', 
+            name: 'Smart Grouping', 
+            type: 'smart-grouping' 
+        });
+    }, []);
+
     // First define handlePlayTrack since other functions depend on it
 
     // Update the handlePlayTrack function to use the imported functions
-    const handlePlayTrack = useCallback((track: Track) => {
-        if (isPremium && deviceId) {
-            if (!isDeviceReady) {
-                console.log('Device not ready, reconnecting before playing...');
-                if (player) {
-                    player.connect()
-                        .then((success: boolean) => {
-                            if (success) {
-                                setTimeout(() => {
-                                    // Retry play after successful connection and brief delay
-                                    playTrackOnDevice(`spotify:track:${track.id}`, deviceId)
-                                        .then(() => {
-                                            setIsPlaying(true);
-                                            setCurrentlyPlayingTrack(track);
-                                        })
-                                        .catch(handlePlaybackError);
-                            }, 1000);
+    const handlePlayTrack = useCallback(async (track: DashboardTrack) => {
+        console.log('Dashboard: handlePlayTrack called with track:', track.id, track.name);
+        
+        // Set the track immediately for UI feedback
+        setCurrentlyPlayingTrack(track);
+        
+        if (isPremium && deviceId && player) {
+            console.log('Dashboard: Using premium SDK playback');
+            
+            try {
+                // First check device health
+                const { checkDeviceHealth } = await import('../api/spotify');
+                const deviceHealth = await checkDeviceHealth(deviceId);
+                
+                if (!deviceHealth.exists) {
+                    console.log('Dashboard: Device not found, attempting to reconnect...');
+                    setIsReconnecting(true);
+                    const success = await player.connect();
+                    if (success) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await transferPlaybackToDevice(deviceId);
+                        console.log('Dashboard: Device reconnected successfully');
+                        setIsReconnecting(false);
+                    } else {
+                        console.error('Dashboard: Failed to reconnect Spotify player');
+                        setIsReconnecting(false);
+                        fallbackToPreview(track);
+                        return;
+                    }
+                } else if (!deviceHealth.isActive) {
+                    console.log('Dashboard: Device exists but not active, transferring playback...');
+                    setIsReconnecting(true);
+                    await transferPlaybackToDevice(deviceId);
+                    setIsReconnecting(false);
+                }
+                
+                // Now try to play the track
+                await playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+                setIsPlaying(true);
+                console.log('Dashboard: SDK playback started');
+                
+            } catch (error: any) {
+                console.error('Dashboard: Error playing track via SDK:', error);
+                setIsReconnecting(false);
+                
+                // Handle specific device errors
+                if (error.message?.includes('device_not_found')) {
+                    console.log('Dashboard: Device not found error, trying to reconnect...');
+                    setIsReconnecting(true);
+                    try {
+                        const success = await player.connect();
+                        if (success) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            await transferPlaybackToDevice(deviceId);
+                            await playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+                            setIsPlaying(true);
+                            console.log('Dashboard: SDK playback started after reconnect');
                         } else {
-                            console.error('Failed to reconnect Spotify player');
+                            console.error('Dashboard: Failed to reconnect after device_not_found');
                             fallbackToPreview(track);
                         }
-                    });
-            } else {
-                fallbackToPreview(track);
+                    } catch (reconnectError) {
+                        console.error('Dashboard: Error during reconnection:', reconnectError);
+                        fallbackToPreview(track);
+                    } finally {
+                        setIsReconnecting(false);
+                    }
+                } else {
+                    // Other errors, fallback to preview
+                    fallbackToPreview(track);
+                }
             }
         } else {
-            // Existing code to play track
-            playTrackOnDevice(`spotify:track:${track.id}`, deviceId)
-                .then(() => {
-                    setIsPlaying(true);
-                    setCurrentlyPlayingTrack(track);
-                })
-                .catch(handlePlaybackError);
-        }
-    } else {
-        // Fallback to preview URLs for non-premium (no changes needed here)
-        if (!track.preview_url) {
-            console.log("No preview available for this track");
-            alert("No preview available for this track. Full playback requires Spotify Premium.");
-            return;
-        }
+            console.log('Dashboard: Using preview mode playback');
+            
+            if (!track.preview_url) {
+                console.log("Dashboard: No preview available for this track");
+                alert("No preview available for this track. Full playback requires Spotify Premium.");
+                return;
+            }
 
-        if (currentlyPlayingTrack && currentlyPlayingTrack.id === track.id) {
-            // Toggle play/pause for current track
-            if (isPlaying) {
-                audioRef.current?.pause();
+            if (currentlyPlayingTrack && currentlyPlayingTrack.id === track.id) {
+                // Toggle play/pause for current track
+                if (isPlaying) {
+                    audioRef.current?.pause();
+                } else {
+                    audioRef.current?.play();
+                }
+                setIsPlaying(!isPlaying);
             } else {
-                audioRef.current?.play();
-            }
-            setIsPlaying(!isPlaying);
-        } else {
-            // Play new track
-            if (audioRef.current) {
-                audioRef.current.src = track.preview_url || '';
-                audioRef.current.play()
-                    .then(() => {
+                // Play new track
+                if (audioRef.current) {
+                    // Check if preview URL is available
+                    if (!track.preview_url) {
+                        console.warn("Dashboard: No preview URL available for track:", track.name);
+                        alert("No preview available for this track. Please try a different track or upgrade to Premium.");
+                        return;
+                    }
+                    
+                    audioRef.current.src = track.preview_url;
+                    try {
+                        await audioRef.current.play();
                         setIsPlaying(true);
-                        setCurrentlyPlayingTrack(track);
-                    })
-                    .catch(err => {
-                        console.error("Error playing track:", err);
+                        console.log('Dashboard: Preview playback started');
+                    } catch (error) {
+                        console.error("Dashboard: Error playing track preview:", error);
                         alert("Failed to play track preview. This may be due to browser autoplay restrictions.");
-                    });
+                    }
+                }
             }
         }
-    }
-}, [
-    isPremium, 
-    deviceId, 
-    isDeviceReady, 
-    player, 
-    currentlyPlayingTrack, 
-    isPlaying, 
-    audioRef, 
-    handlePlaybackError, 
-    fallbackToPreview
-]);
+    }, [
+        isPremium, 
+        deviceId, 
+        isDeviceReady, 
+        player, 
+        currentlyPlayingTrack, 
+        isPlaying, 
+        audioRef, 
+        handlePlaybackError, 
+        fallbackToPreview
+    ]);
 
     // Then define these functions before the useEffect that uses them
     const handleTrackEnded = useCallback(() => {
@@ -526,6 +656,23 @@ const Dashboard: React.FC = () => {
             audioRef.current = new Audio();
             audioRef.current.addEventListener('ended', handleTrackEnded);
             audioRef.current.addEventListener('error', handleAudioError);
+            
+            // Add metadata loading event listeners for preview mode
+            audioRef.current.addEventListener('loadedmetadata', () => {
+                if (audioRef.current) {
+                    setDuration(audioRef.current.duration * 1000); // Convert to ms
+                }
+            });
+            
+            audioRef.current.addEventListener('timeupdate', () => {
+                if (audioRef.current) {
+                    const currentTime = audioRef.current.currentTime * 1000; // Convert to ms
+                    setCurrentPosition(currentTime);
+                    if (audioRef.current.duration > 0) {
+                        setProgress((currentTime / (audioRef.current.duration * 1000)) * 100);
+                    }
+                }
+            });
         }
 
         return () => {
@@ -650,22 +797,43 @@ const Dashboard: React.FC = () => {
     }, [currentPlaylist, playlistTracks, loadPlaylistTracks, isPremium, deviceId, player, transferPlaybackToDevice, setIsPlaying, setCurrentPlaylist, setCurrentTrackIndex, playPlaylistOnDevice, handlePlayTrack]);
 
     // Update handlePlayPauseClick
-    const handlePlayPauseClick = () => {
+    const handlePlayPauseClick = async () => {
         if (isPremium && player) {
-            if (!isDeviceReady) {
-                console.log('Reconnecting Spotify player...');
-                player.connect()
-                    .then((success: boolean) => {
-                        if (success) {
-                            setTimeout(() => player.togglePlay(), 1000); // Wait for connection
-                        } else {
-                            console.error('Failed to reconnect player');
-                            // Fall back to preview mode if reconnection fails
-                            setIsPremium(false);
-                        }
-                    });
-            } else {
-                player.togglePlay();
+            try {
+                // Check device health before attempting to play/pause
+                const { checkDeviceHealth } = await import('../api/spotify');
+                const deviceHealth = await checkDeviceHealth(deviceId);
+                
+                if (!deviceHealth.exists) {
+                    console.log('Device not found, reconnecting...');
+                    const success = await player.connect();
+                    if (success) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await transferPlaybackToDevice(deviceId);
+                        player.togglePlay();
+                    } else {
+                        console.error('Failed to reconnect player');
+                        setIsPremium(false);
+                    }
+                } else if (!deviceHealth.isActive) {
+                    console.log('Device not active, transferring playback...');
+                    await transferPlaybackToDevice(deviceId);
+                    player.togglePlay();
+                } else {
+                    player.togglePlay();
+                }
+            } catch (error) {
+                console.error('Error in handlePlayPauseClick:', error);
+                // Fall back to preview mode if there's an error
+                setIsPremium(false);
+                if (currentlyPlayingTrack) {
+                    if (isPlaying) {
+                        audioRef.current?.pause();
+                    } else {
+                        audioRef.current?.play();
+                    }
+                    setIsPlaying(!isPlaying);
+                }
             }
         } else if (currentlyPlayingTrack) {
             // Your existing preview audio code
@@ -678,28 +846,6 @@ const Dashboard: React.FC = () => {
         } else if (playlists.length > 0) {
             // Your existing code
             handlePlayPlaylist(playlists[0]);
-        }
-    };
-
-    // Update handlePreviousTrack for Premium support
-    const handlePreviousTrack = () => {
-        if (isPremium && player) {
-            player.previousTrack();
-        } else if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex > 0) {
-            const prevIndex = currentTrackIndex - 1;
-            setCurrentTrackIndex(prevIndex);
-            handlePlayTrack(playlistTracks[prevIndex].track);
-        }
-    };
-
-    // Update handleNextTrack for Premium support
-    const handleNextTrack = () => {
-        if (isPremium && player) {
-            player.nextTrack();
-        } else if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex < playlistTracks.length - 1) {
-            const nextIndex = currentTrackIndex + 1;
-            setCurrentTrackIndex(nextIndex);
-            handlePlayTrack(playlistTracks[nextIndex].track);
         }
     };
 
@@ -728,6 +874,165 @@ const Dashboard: React.FC = () => {
         console.log('Successfully logged out');
     };
 
+    // Add previous track functionality
+    const handlePreviousTrack = useCallback(async () => {
+        console.log('Dashboard: handlePreviousTrack called', { 
+            isPremium, 
+            hasPlayer: !!player, 
+            deviceId,
+            isDeviceReady,
+            currentPlaylist: currentPlaylist?.id,
+            playlistTracksLength: playlistTracks.length,
+            currentTrackIndex
+        });
+        
+        // Prioritize manual track navigation when we have track context
+        if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex > 0) {
+            console.log('Dashboard: Using manual track navigation for previous track');
+            const prevIndex = currentTrackIndex - 1;
+            const prevTrack = playlistTracks[prevIndex].track;
+            setCurrentTrackIndex(prevIndex);
+            handlePlayTrack(prevTrack);
+        } else if (isPremium && player && deviceId && isDeviceReady) {
+            console.log('Dashboard: Using SDK for previous track (no manual context available)');
+            try {
+                // Check device health before attempting to skip
+                const { checkDeviceHealth } = await import('../api/spotify');
+                const deviceHealth = await checkDeviceHealth(deviceId);
+                
+                if (!deviceHealth.exists) {
+                    console.log('Device not found, reconnecting...');
+                    const success = await player.connect();
+                    if (success) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await transferPlaybackToDevice(deviceId);
+                        player.previousTrack();
+                    } else {
+                        console.error('Failed to reconnect player');
+                    }
+                } else if (!deviceHealth.isActive) {
+                    console.log('Device not active, transferring playback...');
+                    await transferPlaybackToDevice(deviceId);
+                    player.previousTrack();
+                } else {
+                    player.previousTrack();
+                }
+            } catch (error) {
+                console.error('Error in handlePreviousTrack:', error);
+            }
+        } else {
+            console.log('Dashboard: Cannot play previous track - no track context available');
+        }
+    }, [isPremium, player, deviceId, isDeviceReady, currentPlaylist, playlistTracks, currentTrackIndex, handlePlayTrack]);
+
+    // Add next track functionality
+    const handleNextTrack = useCallback(async () => {
+        console.log('Dashboard: handleNextTrack called', { 
+            isPremium, 
+            hasPlayer: !!player, 
+            deviceId,
+            isDeviceReady,
+            currentPlaylist: currentPlaylist?.id,
+            playlistTracksLength: playlistTracks.length,
+            currentTrackIndex
+        });
+        
+        // Prioritize manual track navigation when we have track context
+        if (currentPlaylist && playlistTracks.length > 0 && currentTrackIndex < playlistTracks.length - 1) {
+            console.log('Dashboard: Using manual track navigation for next track');
+            const nextIndex = currentTrackIndex + 1;
+            const nextTrack = playlistTracks[nextIndex].track;
+            setCurrentTrackIndex(nextIndex);
+            handlePlayTrack(nextTrack);
+        } else if (isPremium && player && deviceId && isDeviceReady) {
+            console.log('Dashboard: Using SDK for next track (no manual context available)');
+            try {
+                // Check device health before attempting to skip
+                const { checkDeviceHealth } = await import('../api/spotify');
+                const deviceHealth = await checkDeviceHealth(deviceId);
+                
+                if (!deviceHealth.exists) {
+                    console.log('Device not found, reconnecting...');
+                    const success = await player.connect();
+                    if (success) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await transferPlaybackToDevice(deviceId);
+                        player.nextTrack();
+                    } else {
+                        console.error('Failed to reconnect player');
+                    }
+                } else if (!deviceHealth.isActive) {
+                    console.log('Device not active, transferring playback...');
+                    await transferPlaybackToDevice(deviceId);
+                    player.nextTrack();
+                } else {
+                    player.nextTrack();
+                }
+            } catch (error) {
+                console.error('Error in handleNextTrack:', error);
+            }
+        } else {
+            console.log('Dashboard: Cannot play next track - no track context available or at end of playlist');
+        }
+    }, [isPremium, player, deviceId, isDeviceReady, currentPlaylist, playlistTracks, currentTrackIndex, handlePlayTrack]);
+
+    // Add progress update interval for smooth progress bar
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        
+        if (isPremium && player && isPlaying) {
+            interval = setInterval(() => {
+                player.getCurrentState().then((state: SpotifyPlayerState | null) => {
+                    if (state && state.position !== undefined && state.duration !== undefined) {
+                        setCurrentPosition(state.position);
+                        if (state.duration > 0) {
+                            setProgress((state.position / state.duration) * 100);
+                        }
+                    }
+                });
+            }, 1000);
+        } else if (!isPremium && audioRef.current && isPlaying) {
+            // For preview mode, update progress based on audio element
+            interval = setInterval(() => {
+                if (audioRef.current) {
+                    const currentTime = audioRef.current.currentTime * 1000; // Convert to ms
+                    const duration = audioRef.current.duration * 1000; // Convert to ms
+                    setCurrentPosition(currentTime);
+                    if (duration > 0) {
+                        setProgress((currentTime / duration) * 100);
+                    }
+                }
+            }, 1000);
+        }
+
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [isPremium, player, isPlaying]);
+
+    // Format time for display
+    const formatTime = (ms: number): string => {
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    // Add progress bar click handler for seeking
+    const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const progressBar = e.currentTarget;
+        const rect = progressBar.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const percentage = (clickX / rect.width) * 100;
+        
+        if (isPremium && player) {
+            const seekPosition = (percentage / 100) * duration;
+            player.seek(seekPosition);
+        } else if (audioRef.current) {
+            const seekTime = (percentage / 100) * audioRef.current.duration;
+            audioRef.current.currentTime = seekTime;
+        }
+    };
+
     if (loading) {
         return <div className="spotify-loading-container">
             <div className="spotify-loading-spinner"></div>
@@ -740,12 +1045,46 @@ const Dashboard: React.FC = () => {
     // Use a copy of all playlists for Your Playlists section
     const allPlaylists = [...playlists];
 
+
+
     return (
-        <div className="spotify-layout">
-            {/* Mobile sidebar toggle */}
-            <button className="mobile-sidebar-toggle" onClick={toggleSidebar}>
-                {sidebarOpen ? '✖' : '☰'}
-            </button>
+        <div className={`spotify-layout ${isScrolled ? 'scrolled' : ''}`}>
+            {/* Floating Premium Badge - Always render when premium, CSS controls visibility */}
+            {isPremium && (
+                <div className="premium-badge">
+                    <svg viewBox="0 0 16 16" width="16" height="16">
+                        <path fill="currentColor" d="M13.151.922a .75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
+                    </svg>
+                    <span>Premium Active</span>
+                </div>
+            )}
+            
+
+            
+            {/* Mobile Header */}
+            <div className="mobile-header">
+                <div className="mobile-header-left">
+                    <button className="mobile-menu-btn" onClick={toggleSidebar}>
+                        <svg viewBox="0 0 24 24" width="24" height="24">
+                            <path fill="white" d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div className="mobile-header-title">
+                    <h1>{greeting}</h1>
+                </div>
+                <div className="mobile-header-right">
+                    <div className="mobile-user-avatar">
+                        {userAvatar ? (
+                            <img src={userAvatar} alt={userName} />
+                        ) : (
+                            <svg viewBox="0 0 16 16" width="24" height="24">
+                                <path fill="white" d="M8 8c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                            </svg>
+                        )}
+                    </div>
+                </div>
+            </div>
 
             {/* Overlay for mobile */}
             <div
@@ -826,12 +1165,12 @@ const Dashboard: React.FC = () => {
             <main className="spotify-main">
                 <div className="main-header">
                     <div className="navigation-buttons">
-                        <button className="nav-button">
+                        <button className="nav-button" onClick={() => window.history.back()}>
                             <svg viewBox="0 0 24 24" width="22" height="22">
                                 <path fill="currentColor" d="M15.957 2.793a1 1 0 010 1.414L8.164 12l7.793 7.793a1 1 0 11-1.414 1.414L5.336 12l9.207-9.207a1 1 0 011.414 0z" />
                             </svg>
                         </button>
-                        <button className="nav-button">
+                        <button className="nav-button" onClick={() => window.history.forward()}>
                             <svg viewBox="0 0 24 24" width="22" height="22">
                                 <path fill="currentColor" d="M8.043 2.793a1 1 0 000 1.414L15.836 12l-7.793 7.793a1 1 0 101.414 1.414L18.664 12 9.457 2.793a1 1 0 00-1.414 0z" />
                             </svg>
@@ -854,7 +1193,6 @@ const Dashboard: React.FC = () => {
                                 <path fill="currentColor" d="M14 6l-6 6-6-6h12z" />
                             </svg>
 
-                            {/* Add dropdown menu */}
                             <div className="dropdown-menu">
                                 <div className="dropdown-item" onClick={() => navigate('/profile')}>Profile</div>
                                 <div className="dropdown-item" onClick={() => navigate('/settings')}>Settings</div>
@@ -868,7 +1206,9 @@ const Dashboard: React.FC = () => {
                 </div>
 
                 <div className="main-content">
-                    <h1 className="greeting-title">{greeting}</h1>
+                    <div className="desktop-greeting">
+                        <h1 className="greeting-title">{greeting}</h1>
+                    </div>
 
                     <div className="top-row-grid">
                         {topPlaylists.map(playlist => (
@@ -904,11 +1244,11 @@ const Dashboard: React.FC = () => {
                         onPlayTrack={handlePlayTrack}
                         currentlyPlayingTrack={currentlyPlayingTrack?.id}
                         isPlaying={isPlaying}
-                        // Add these new props:
                         player={player}
                         deviceId={deviceId}
                         isPremium={isPremium}
                         isDeviceReady={isDeviceReady}
+                        onTrackChange={handleTrackChange}
                     />
 
                     <div className="section-header">
@@ -945,142 +1285,116 @@ const Dashboard: React.FC = () => {
                 </div>
             </main>
 
-            {/* Playback controls footer */}
-            <footer className="spotify-footer">
-                <div className="now-playing">
-                    <div className="track-info">
-                        <div className="track-image">
+            {/* Enhanced Mini Player Footer */}
+            <footer className="mini-player">
+                {/* Progress Bar */}
+                <div className="mini-player-progress">
+                    <div className="progress-bar">
+                        <span className="progress-time">{formatTime(currentPosition)}</span>
+                        <div className="progress-slider" onClick={handleProgressClick}>
+                            <div className="progress-completed" style={{ width: `${progress}%` }}>
+                                <div className="progress-thumb"></div>
+                            </div>
+                        </div>
+                        <span className="progress-time">
+                            {currentlyPlayingTrack ? formatTime(currentlyPlayingTrack.duration_ms) : formatTime(duration)}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="mini-player-content">
+                    <div className="mini-player-track">
+                        <div className="mini-player-image">
                             {currentlyPlayingTrack ? (
                                 <img
                                     src={
-                                        currentlyPlayingTrack.album &&
-                                            currentlyPlayingTrack.album.images &&
-                                            currentlyPlayingTrack.album.images.length > 0 &&
-                                            currentlyPlayingTrack.album.images[0].url
-                                            ? currentlyPlayingTrack.album.images[0].url
-                                            : `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                                                currentlyPlayingTrack.artists && currentlyPlayingTrack.artists.length > 0
-                                                    ? currentlyPlayingTrack.artists[0].name
-                                                    : currentlyPlayingTrack.name
-                                            )}&background=6c2dc7&color=fff&size=56&bold=true&rounded=true`
+                                        currentlyPlayingTrack.album?.images?.[0]?.url ||
+                                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                            currentlyPlayingTrack.artists?.[0]?.name || currentlyPlayingTrack.name
+                                        )}&background=6c2dc7&color=fff&size=56&bold=true&rounded=true`
                                     }
                                     alt={currentlyPlayingTrack.album?.name || "Album artwork"}
                                 />
                             ) : (
-                                // Replace this with a reliable music icon solution
-                                <div className="music-placeholder-icon">
-                                    <svg viewBox="0 0 24 24" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"
-                                            fill="#6c2dc7" />
+                                <div className="mini-player-placeholder">
+                                    <svg viewBox="0 0 24 24" width="24" height="24">
+                                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" fill="#6c2dc7" />
                                     </svg>
                                 </div>
                             )}
                         </div>
-                        <div className="track-details">
-                            <div className="track-name">
+                        <div className="mini-player-info">
+                            <div className="mini-player-title">
                                 {currentlyPlayingTrack ? currentlyPlayingTrack.name : 'Select a track'}
+                                {isPremium && (
+                                    <span className="premium-indicator" title="Premium Quality">
+                                        <svg viewBox="0 0 16 16" width="12" height="12">
+                                            <path fill="#6c2dc7" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
+                                        </svg>
+                                    </span>
+                                )}
                             </div>
-                            <div className="track-artist">
-                                {currentlyPlayingTrack ?
-                                    currentlyPlayingTrack.artists.map(artist => artist.name).join(', ') :
+                            <div className="mini-player-artist">
+                                {currentlyPlayingTrack ? 
+                                    currentlyPlayingTrack.artists.map(artist => artist.name).join(', ') : 
                                     'to start playing'}
                             </div>
                         </div>
-                        <button className="like-button">
+                    </div>
+                    
+                    <div className="mini-player-controls">
+                        <button className="mini-player-like" title="Like">
                             <svg viewBox="0 0 16 16" width="16" height="16">
                                 <path fill="currentColor" d="M1.69 2A4.582 4.582 0 008 2.023 4.583 4.583 0 0111.88.817h.002a4.618 4.618 0 013.782 3.65v.003a4.543 4.543 0 01-1.011 3.84L9.35 14.629a1.765 1.765 0 01-2.093.464 1.762 1.762 0 01-.605-.463L1.348 8.309A4.582 4.582 0 011.689 2zm3.158.252A3.082 3.082 0 002.49 7.337l.005.005L7.8 13.664a.264.264 0 00.311.069.262.262 0 00.09-.069l5.312-6.33a3.043 3.043 0 00.68-2.573 3.118 3.118 0 00-2.551-2.463 3.079 3.079 0 00-2.612.816l-.007.007a1.501 1.501 0 01-2.045 0l-.009-.008a3.082 3.082 0 00-2.121-.861z" />
                             </svg>
                         </button>
-                    </div>
-                </div>
-
-                <div className="player-controls">
-                    <div className="control-buttons">
-                        {/* Add these playback control buttons */}
-                        <button className="control-button" onClick={handlePreviousTrack}>
-                            <svg viewBox="0 0 16 16" width="16" height="16">
-                                <path d="M3.3 1a.7.7 0 01.7.7v5.15l9.95-5.744a.7.7 0 011.05.606v12.575a.7.7 0 01-1.05.607L4 9.149V14.3a.7.7 0 01-.7.7H1.7a.7.7 0 01-.7-.7V1.7a.7.7 0 01.7-.7h1.6z" fill="currentColor"></path>
-                            </svg>
-                        </button>
-
-                        <button className="control-button play-pause-button" onClick={handlePlayPauseClick}>
-                            {isPlaying ? (
+                        
+                        <div className="mini-player-main-controls">
+                            <button className="mini-player-prev" onClick={handlePreviousTrack} title="Previous">
                                 <svg viewBox="0 0 16 16" width="16" height="16">
-                                    <path fill="currentColor" d="M2.7 1a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7H2.7zm8 0a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-2.6z"></path>
+                                    <path fill="currentColor" d="M3.3 1a.7.7 0 01.7.7v5.15l9.95-5.744a.7.7 0 011.05.606v12.588a.7.7 0 01-1.05.606L4 8.149V13.3a.7.7 0 01-.7.7H1.7a.7.7 0 01-.7-.7V1.7a.7.7 0 01.7-.7h1.6z" />
                                 </svg>
-                            ) : (
+                            </button>
+                            
+                            <button className="mini-player-play" onClick={handlePlayPauseClick} title={isPlaying ? 'Pause' : 'Play'}>
+                                {isPlaying ? (
+                                    <svg viewBox="0 0 16 16" width="16" height="16">
+                                        <path fill="currentColor" d="M2.7 1a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7H2.7zm8 0a.7.7 0 00-.7.7v12.6a.7.7 0 00.7.7h2.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-2.6z" />
+                                    </svg>
+                                ) : (
+                                    <svg viewBox="0 0 16 16" width="16" height="16">
+                                        <path d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" fill="currentColor" />
+                                    </svg>
+                                )}
+                            </button>
+                            
+                            <button className="mini-player-next" onClick={handleNextTrack} title="Next">
                                 <svg viewBox="0 0 16 16" width="16" height="16">
-                                    <path d="M3 1.713a.7.7 0 011.05-.607l10.89 6.288a.7.7 0 010 1.212L4.05 14.894A.7.7 0 013 14.288V1.713z" fill="currentColor"></path>
+                                    <path fill="currentColor" d="M12.7 1a.7.7 0 00-.7.7v5.15L2.05 1.107A.7.7 0 001 1.712v12.588a.7.7 0 001.05.606L12 8.149V13.3a.7.7 0 00.7.7h1.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-1.6z" />
                                 </svg>
-                            )}
-                        </button>
-
-                        <button className="control-button" onClick={handleNextTrack}>
-                            <svg viewBox="0 0 16 16" width="16" height="16">
-                                <path d="M12.7 1a.7.7 0 00-.7.7v5.15L2.05 1.107A.7.7 0 001 1.712v12.575a.7.7 0 001.05.607L12 9.149V14.3a.7.7 0 00.7.7h1.6a.7.7 0 00.7-.7V1.7a.7.7 0 00-.7-.7h-1.6z" fill="currentColor"></path>
-                            </svg>
-                        </button>
-
-                        {/* Your existing Premium button */}
-                        <button className="control-button">
+                            </button>
+                        </div>
+                        
+                        <button className="mini-player-shuffle" title="Shuffle">
                             <svg viewBox="0 0 16 16" width="16" height="16">
                                 <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
                             </svg>
-                            <span>Premium</span>
                         </button>
-                    </div>
-
-                    <div className="playback-bar">
-                        <span className="playback-time">0:00</span>
-                        <div className="progress-bar">
-                            <div className="progress-bar-bg">
-                                <div className="progress-bar-fill"></div>
-                            </div>
-                        </div>
-                        <span className="playback-time">
-                            {currentlyPlayingTrack ?
-                                formatDuration(currentlyPlayingTrack.duration_ms) :
-                                '0:00'}
-                        </span>
                     </div>
                 </div>
             </footer>
 
-            {/* Add this to your dashboard UI near the player controls */}
-            {isPremium ? (
-                <div className="premium-badge">
-                    <svg viewBox="0 0 16 16" width="16" height="16">
-                        <path fill="currentColor" d="M13.151.922a.75.75 0 10-1.06 1.06L13.109 3H11.16a3.75 3.75 0 00-2.873 1.34l-6.173 7.356A2.25 2.25 0 01.39 12.5H0V14h.391a3.75 3.75 0 002.873-1.34l6.173-7.356a2.25 2.25 0 011.724-.804h1.947l-1.017 1.018a.75.75 0 001.06 1.06L15.98 3.75 13.15.922z" />
-                    </svg>
-                    <span>Premium Active</span>
-                </div>
-            ) : (
-                <div className="preview-badge">
-                    <span>Using Preview Mode</span>
-                    <a href="https://www.spotify.com/premium/" target="_blank" rel="noopener noreferrer">
-                        Get Premium
-                    </a>
-                </div>
-            )}
-
-            {isPremium && !isDeviceReady && (
+            {/* Device Status Indicator */}
+            {(isPremium && !isDeviceReady) || isReconnecting ? (
                 <div className="device-reconnecting">
                     <svg viewBox="0 0 16 16" width="16" height="16" className="spinner">
                         <path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm3.5 7.5h-2v2a.5.5 0 01-1 0v-2h-2a.5.5 0 010-1h2v-2a.5.5 0 011 0v2h2a.5.5 0 010 1z" />
                     </svg>
-                    <span>Reconnecting player...</span>
+                    <span>{isReconnecting ? 'Reconnecting device...' : 'Reconnecting player...'}</span>
                 </div>
-            )}
+            ) : null}
         </div>
     );
-
-}
-
-// Keep this function outside since it doesn't use component state
-const formatDuration = (ms: number): string => {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(0);
-    return `${minutes}:${parseInt(seconds) < 10 ? '0' : ''}${seconds}`;
 };
 
 export default Dashboard;

@@ -70,14 +70,62 @@ export const spotifyApiRequest = async (url: string, options: RequestOptions = {
 
 // Make sure your fetchPlaylists function is properly implemented
 
-// Use your serverless functions for key operations
+// Use direct Spotify API call for playlists
 export const fetchPlaylists = async () => {
   try {
     // First, ensure we have a valid token
     await refreshTokenIfNeeded();
     
-    // Then make the API call
-    const data = await spotifyApiRequest('https://api.spotify.com/v1/me/playlists');
+    // Get the access token
+    const accessToken = localStorage.getItem('accessToken');
+    
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+    
+    // Call Spotify API directly
+    const response = await fetch('https://api.spotify.com/v1/me/playlists', {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      // Handle 401 by trying to refresh token
+      if (response.status === 401) {
+        console.log('Token expired, attempting to refresh...');
+        const refreshed = await refreshToken();
+        
+        if (refreshed) {
+          // Retry with new token
+          const newToken = localStorage.getItem('accessToken');
+          const retryResponse = await fetch('https://api.spotify.com/v1/me/playlists', {
+            headers: {
+              'Authorization': `Bearer ${newToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!retryResponse.ok) {
+            throw new Error(`Retry failed: ${retryResponse.status} ${retryResponse.statusText}`);
+          }
+          
+          const retryData = await retryResponse.json();
+          return retryData.items;
+        } else {
+          // Refresh failed, redirect to login
+          localStorage.clear();
+          window.location.href = '/login';
+          return [];
+        }
+      } else {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+    }
+    
+    const data = await response.json();
     
     if (!data || !data.items) {
       console.error('Unexpected response format from playlists endpoint:', data);
@@ -89,28 +137,15 @@ export const fetchPlaylists = async () => {
     console.error('Error fetching playlists:', error);
     
     // Type guard to safely access error properties
-    const err = error as { response?: { status: number }, message?: string };
+    const err = error as { message?: string };
     
-    // Check if error is due to auth issues
-    if (err.response?.status === 401 || (err.message && err.message.includes('token'))) {
-      console.log('Authentication error, attempting token refresh...');
-      
-      // Force token refresh regardless of expiration
-      const refreshed = await forceTokenRefresh();
-      if (refreshed) {
-        // Retry the request with new token
-        return spotifyApiRequest('https://api.spotify.com/v1/me/playlists')
-          .then(data => data.items);
-      }
-    }
-    
-    throw new Error(`Playlists fetch failed: ${err.response?.status || err.message || 'Unknown error'}`);
+    throw new Error(`Failed to load playlists: ${err.message || 'Unknown error'}`);
   }
 };
 
 // Add this helper function
 const refreshTokenIfNeeded = async () => {
-  const tokenExpiration = localStorage.getItem('tokenExpiration');
+  const tokenExpiration = localStorage.getItem('expiresAt'); // Fixed to match what callback sets
   const currentTime = Date.now();
   
   // Refresh if token is expired or will expire in next 5 minutes

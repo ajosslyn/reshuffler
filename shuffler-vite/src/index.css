@@ -1,13 +1,10 @@
-/* First place any @charset declarations if needed */
-@charset "UTF-8";
-
-/* Then place ALL @import statements together at the top */
+/* ALL @import statements must be at the very top */
 @import './components/Login.css';
 @import './components/Callback.css';
 @import './components/Dashboard.css';
 @import './components/Playlist/PlaylistDetail.css';
 
-
+/* Then place any other CSS rules after imports */
 * {
   margin: 0;
   padding: 0;

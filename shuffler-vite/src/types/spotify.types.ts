@@ -9,6 +9,7 @@ export interface Track {
     duration: number; // in seconds
     playlistName?: string; // Optional playlist name for multi-playlist grouping
     playlistId?: string; // Optional playlist ID for multi-playlist grouping
+    albumArt?: string; // Album art URL
 }
 
 export interface Playlist {

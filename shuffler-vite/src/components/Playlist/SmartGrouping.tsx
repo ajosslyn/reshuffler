@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getUserPlaylists, getPlaylistTracks } from '../../api/spotifyService';
+import ImageWithFallback from '../common/ImageWithFallback';
 import './SmartGrouping.css';
 
 // Import the new enhanced services - FIXED IMPORTS
@@ -16,6 +17,8 @@ interface SmartGroupingProps {
     deviceId?: string;
     isPremium?: boolean;
     isDeviceReady?: boolean;
+    // Add new props for track navigation
+    onTrackChange?: (tracks: Track[], currentIndex: number) => void;
 }
 
 const SmartGrouping: React.FC<SmartGroupingProps> = ({
@@ -25,7 +28,8 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
     player,
     deviceId,
     isPremium,
-    isDeviceReady
+    isDeviceReady,
+    onTrackChange
 }) => {
     const [tracks, setTracks] = useState<Track[]>([]);
     const [enhancedTracks, setEnhancedTracks] = useState<EnhancedTrackData[]>([]);
@@ -71,7 +75,8 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
             genre: 'Unknown', // Will be enhanced by Last.fm
             tempo: 120, // Default, will be enhanced
             language: 'Unknown', // Will be enhanced
-            duration: Math.floor((spotifyTrack.duration_ms || 0) / 1000)
+            duration: Math.floor((spotifyTrack.duration_ms || 0) / 1000),
+            albumArt: spotifyTrack.album?.images?.[0]?.url || ''
         };
     };
 
@@ -307,6 +312,16 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
     const handlePlayTrack = (enhancedTrack: EnhancedTrackData) => {
         const track = enhancedTrack.track;
         
+        // Create track list for navigation
+        const allTracks = Object.values(groupedTracks).flat();
+        const trackList = allTracks.map(et => et.track);
+        const currentIndex = trackList.findIndex(t => t.id === track.id);
+        
+        // Communicate track context to Dashboard for navigation
+        if (onTrackChange) {
+            onTrackChange(trackList, currentIndex);
+        }
+        
         const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(track.artist + ' ' + track.name)}&background=6c2dc7&color=fff&size=300&bold=true&rounded=true`;
 
         const fullTrack = {
@@ -318,23 +333,180 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
                 images: [{ url: avatarUrl }]
             },
             duration_ms: track.duration * 1000,
-            preview_url: `https://p.scdn.co/mp3-preview/${track.id}`
+            preview_url: undefined // SmartGrouping tracks don't have preview URLs
         };
 
+        console.log('SmartGrouping: Playing track:', fullTrack.id, fullTrack.name);
+
+        // Check if this is a premium user for proper playback
+        if (!isPremium && !fullTrack.preview_url) {
+            console.warn('SmartGrouping: No preview URL available for non-premium user');
+            alert('This track is not available for preview. Please upgrade to Premium for full track playback.');
+            return;
+        }
+
+        // Always update Dashboard state first for immediate UI feedback
+        if (onPlayTrack) {
+            onPlayTrack(fullTrack);
+        }
+
         if (isPremium && deviceId && player && isDeviceReady) {
-            console.log('Using SDK to play track:', track.id);
-            import('../../api/spotify').then(({ playTrackOnDevice }) => {
-                playTrackOnDevice(`spotify:track:${track.id}`, deviceId)
-                    .then(() => console.log('Track playback started via SDK'))
+            console.log('SmartGrouping: Using SDK to play track:', track.id);
+            
+            import('../../api/spotify').then(({ playTrackOnDevice, transferPlaybackToDevice }) => {
+                // First, try to transfer playback to ensure device is active
+                transferPlaybackToDevice(deviceId)
+                    .then(() => {
+                        console.log('SmartGrouping: Device activated, playing track');
+                        return playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+                    })
+                    .then(() => {
+                        console.log('SmartGrouping: Track playback started via SDK');
+                        // State should be updated via SDK player state listener
+                    })
                     .catch(err => {
-                        console.error('Error playing track via SDK:', err);
-                        if (onPlayTrack) onPlayTrack(fullTrack);
+                        console.error('SmartGrouping: Error playing track via SDK:', err);
+                        
+                        // Check if it's a device_not_found error
+                        if (err.message?.includes('device_not_found')) {
+                            console.log('SmartGrouping: Device not found, trying to reconnect...');
+                            
+                            // Try to reconnect the device
+                            if (player && player.activateElement) {
+                                player.activateElement().then(() => {
+                                    console.log('SmartGrouping: Device reconnected, retrying playback');
+                                    return transferPlaybackToDevice(deviceId);
+                                }).then(() => {
+                                    return playTrackOnDevice(`spotify:track:${track.id}`, deviceId);
+                                }).then(() => {
+                                    console.log('SmartGrouping: Track playback started after reconnection');
+                                }).catch((reconnectErr: any) => {
+                                    console.error('SmartGrouping: Failed to reconnect device:', reconnectErr);
+                                    // Fallback to preview mode handled by Dashboard
+                                });
+                            } else {
+                                console.warn('SmartGrouping: Cannot reconnect device, no activateElement method');
+                                // Fallback to preview mode handled by Dashboard
+                            }
+                        } else {
+                            // Other errors, fallback to preview mode handled by Dashboard
+                            console.log('SmartGrouping: Non-device error, falling back to Dashboard handling');
+                        }
                     });
             });
         } else {
-            if (onPlayTrack) onPlayTrack(fullTrack);
+            console.log('SmartGrouping: Playing track in preview mode');
         }
     };
+
+    // Handle tab scrolling on mobile
+    const scrollToActiveTab = useCallback((tabElement: HTMLElement) => {
+        if (window.innerWidth <= 768) {
+            const tabsContainer = tabElement.closest('.grouping-tabs');
+            if (tabsContainer) {
+                const containerRect = tabsContainer.getBoundingClientRect();
+                const tabRect = tabElement.getBoundingClientRect();
+                const scrollLeft = tabsContainer.scrollLeft;
+                
+                // Calculate the position to center the tab
+                const tabCenter = tabRect.left + tabRect.width / 2;
+                const containerCenter = containerRect.left + containerRect.width / 2;
+                const scrollTo = scrollLeft + (tabCenter - containerCenter);
+                
+                tabsContainer.scrollTo({
+                    left: scrollTo,
+                    behavior: 'smooth'
+                });
+            }
+        }
+    }, []);
+
+    // Enhanced criteria change handler with tab scrolling
+    const handleCriteriaChange = useCallback((newCriteria: string) => {
+        setCriteria(newCriteria);
+        
+        // Scroll to the active tab on mobile
+        setTimeout(() => {
+            const activeTab = document.querySelector('.tab-button.active') as HTMLElement;
+            if (activeTab) {
+                scrollToActiveTab(activeTab);
+            }
+        }, 100);
+    }, [scrollToActiveTab]);
+
+    // Enhanced grouping logic with better categorization
+    const performGrouping = useCallback(async () => {
+        if (enhancedTracks.length === 0) return;
+
+        try {
+            let groupedResults: Record<string, EnhancedTrackData[]> = {};
+
+            if (criteria === 'intelligent') {
+                // Use the new cross-playlist intelligent grouping
+                groupedResults = playlistGrouper.createCrossPlaylistGroups(enhancedTracks);
+            } else {
+                // Basic grouping for backwards compatibility
+                const basicGrouper = new Map<string, EnhancedTrackData[]>();
+                
+                enhancedTracks.forEach(enhanced => {
+                    let key = 'Unknown';
+                    
+                    switch (criteria) {
+                        case 'artist':
+                            key = enhanced.track.artist;
+                            break;
+                        case 'genre':
+                            key = enhanced.enhancedGenres[0] || enhanced.track.genre || 'Unknown';
+                            break;
+                        case 'playlist':
+                            key = enhanced.track.playlistName || 'Unknown Playlist';
+                            break;
+                        case 'energy':
+                            key = `${enhanced.energyLevel.charAt(0).toUpperCase() + enhanced.energyLevel.slice(1)} Energy`;
+                            break;
+                        case 'mood':
+                            if (enhanced.moodScore > 0.7) key = 'Happy';
+                            else if (enhanced.moodScore < 0.3) key = 'Sad';
+                            else key = 'Neutral';
+                            break;
+                        default:
+                            key = enhanced.track.genre || 'Unknown';
+                    }
+                    
+                    if (!basicGrouper.has(key)) {
+                        basicGrouper.set(key, []);
+                    }
+                    basicGrouper.get(key)!.push(enhanced);
+                });
+                
+                groupedResults = Object.fromEntries(basicGrouper);
+            }
+
+            const groupCount = Object.keys(groupedResults).length;
+            console.log(`✨ Grouped ${enhancedTracks.length} tracks by ${criteria}: ${groupCount} groups`);
+
+            setGroupedTracks(groupedResults);
+        } catch (err) {
+            console.error(`Error grouping by ${criteria}:`, err);
+            setError(`Failed to group tracks by ${criteria}`);
+            setGroupedTracks({});
+        }
+    }, [enhancedTracks, criteria, playlistGrouper]);
+
+    // Group tracks when enhanced tracks or criteria change
+    useEffect(() => {
+        performGrouping();
+    }, [performGrouping]);
+
+    // Initial fetch
+    useEffect(() => {
+        fetchUserPlaylists();
+    }, [fetchUserPlaylists]);
+
+    // Reset error when changing criteria
+    useEffect(() => {
+        setError(null);
+    }, [criteria]);
 
     // Touch handling effect (same as before)
     useEffect(() => {
@@ -373,13 +545,40 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
     return (
         <div className="smart-grouping">
             <div className="smart-grouping-header">
-                <h2 className="smart-grouping-title">
-                    Smart Grouping {musicAnalyzer ? '🎵' : '⚠️'}
-                </h2>
+                <div className="header-main">
+                    <div className="header-title-section">
+                        <h1 className="smart-grouping-title">
+                            Smart Grouping
+                        </h1>
+                        <div className="header-subtitle">
+                            <div className="status-section">
+                                {musicAnalyzer ? (
+                                    <span className="feature-status active">
+                                        <span className="status-icon">🎵</span>
+                                        Enhanced features enabled
+                                    </span>
+                                ) : (
+                                    <span className="feature-status inactive">
+                                        <span className="status-icon">⚠️</span>
+                                        Basic features only
+                                    </span>
+                                )}
+                            </div>
+                            <div className="indicator-section">
+                                <div className="grouping-indicator">
+                                    <span className="indicator-text">AI-Powered</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 {!musicAnalyzer && (
-                    <p className="api-warning">
-                        Enhanced features unavailable - Last.fm API key missing
-                    </p>
+                    <div className="api-notice">
+                        <span className="notice-icon">ℹ️</span>
+                        <span className="notice-text">
+                            Connect Last.fm for enhanced music analysis and grouping
+                        </span>
+                    </div>
                 )}
             </div>
 
@@ -408,55 +607,57 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
                 )}
 
                 {/* Enhanced tab interface */}
-                <div className="grouping-tabs">
-                    <div className="grouping-header">
-                        <span className="grouping-label">Group by:</span>
-                        {tracks.length > 0 && (
-                            <div className="track-summary">
-                                <span className="track-count">{tracks.length} tracks</span>
-                                <span className="playlist-count">
-                                    from {new Set(tracks.map(t => t.playlistName).filter(Boolean)).size} playlists
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                    <div className="tab-buttons">
-                        <button
-                            className={`tab-button ${criteria === 'intelligent' ? 'active' : ''}`}
-                            onClick={() => setCriteria('intelligent')}
-                        >
-                            🧠 Smart
-                        </button>
-                        <button
-                            className={`tab-button ${criteria === 'energy' ? 'active' : ''}`}
-                            onClick={() => setCriteria('energy')}
-                        >
-                            ⚡ Energy
-                        </button>
-                        <button
-                            className={`tab-button ${criteria === 'mood' ? 'active' : ''}`}
-                            onClick={() => setCriteria('mood')}
-                        >
-                            😊 Mood
-                        </button>
-                        <button
-                            className={`tab-button ${criteria === 'artist' ? 'active' : ''}`}
-                            onClick={() => setCriteria('artist')}
-                        >
-                            👨‍🎤 Artist
-                        </button>
-                        <button
-                            className={`tab-button ${criteria === 'genre' ? 'active' : ''}`}
-                            onClick={() => setCriteria('genre')}
-                        >
-                            🎸 Genre
-                        </button>
-                        <button
-                            className={`tab-button ${criteria === 'playlist' ? 'active' : ''}`}
-                            onClick={() => setCriteria('playlist')}
-                        >
-                            📋 Playlist
-                        </button>
+                <div className="grouping-tabs-container">
+                    <div className="grouping-tabs">
+                        <div className="grouping-header">
+                            <span className="grouping-label">Group by:</span>
+                            {tracks.length > 0 && (
+                                <div className="track-summary">
+                                    <span className="track-count">{tracks.length} tracks</span>
+                                    <span className="playlist-count">
+                                        from {new Set(tracks.map(t => t.playlistName).filter(Boolean)).size} playlists
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                        <div className="tab-buttons">
+                            <button
+                                className={`tab-button ${criteria === 'intelligent' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('intelligent')}
+                            >
+                                🧠 Smart
+                            </button>
+                            <button
+                                className={`tab-button ${criteria === 'energy' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('energy')}
+                            >
+                                ⚡ Energy
+                            </button>
+                            <button
+                                className={`tab-button ${criteria === 'mood' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('mood')}
+                            >
+                                😊 Mood
+                            </button>
+                            <button
+                                className={`tab-button ${criteria === 'artist' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('artist')}
+                            >
+                                👨‍🎤 Artist
+                            </button>
+                            <button
+                                className={`tab-button ${criteria === 'genre' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('genre')}
+                            >
+                                🎸 Genre
+                            </button>
+                            <button
+                                className={`tab-button ${criteria === 'playlist' ? 'active' : ''}`}
+                                onClick={() => handleCriteriaChange('playlist')}
+                            >
+                                📋 Playlist
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -500,73 +701,81 @@ const SmartGrouping: React.FC<SmartGroupingProps> = ({
                         )}
                     </div>
                 ) : (
-                    <div className="track-groups-container">
+                    <div className="discover-sections">
                         {Object.entries(groupedTracks).map(([groupName, groupTracks]) => (
-                            <div key={groupName} className="track-group">
-                                <div className="track-group-header">
-                                    <h3 className="track-group-title">{groupName}</h3>
-                                    <span className="track-count">{groupTracks.length} tracks</span>
+                            <div key={groupName} className="discover-section">
+                                <div className="section-header">
+                                    <h2 className="section-title">{groupName}</h2>
+                                    <span className="section-subtitle">{groupTracks.length} tracks</span>
+                                    <button className="show-all-btn">Show all</button>
                                 </div>
-                                <ul className="track-list">
-                                    {groupTracks.slice(0, 20).map((enhancedTrack, index) => {
-                                        const track = enhancedTrack.track;
-                                        return (
-                                            <li
-                                                key={`${track.id}-${index}`}
-                                                className={`track-item ${currentlyPlayingTrack === track.id ? 'playing' : ''}`}
-                                                onClick={() => handlePlayTrack(enhancedTrack)}
-                                            >
-                                                <div className="track-number">
-                                                    {currentlyPlayingTrack === track.id && isPlaying ? (
-                                                        <span className="now-playing-icon">
-                                                            <span className="bar"></span>
-                                                            <span className="bar"></span>
-                                                            <span className="bar"></span>
-                                                        </span>
-                                                    ) : (
-                                                        index + 1
-                                                    )}
-                                                </div>
-                                                <div className="play-icon">
-                                                    {currentlyPlayingTrack === track.id && isPlaying ? (
-                                                        <svg viewBox="0 0 24 24" width="16" height="16">
-                                                            <rect x="6" y="4" width="4" height="16" fill="currentColor" />
-                                                            <rect x="14" y="4" width="4" height="16" fill="currentColor" />
-                                                        </svg>
-                                                    ) : (
-                                                        <svg viewBox="0 0 24 24" width="16" height="16">
-                                                            <path fill="currentColor" d="M8 5.14v14l11-7-11-7z" />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                                <div className="track-info">
-                                                    <span className="track-title">{track.name}</span>
-                                                    <span className="track-artist">{track.artist}</span>
-                                                    {track.playlistName && (
-                                                        <span className="track-playlist">📋 {track.playlistName}</span>
-                                                    )}
-                                                    {/* Show enhanced info */}
-                                                    <div className="track-meta">
-                                                        {enhancedTrack.vibeCategories.slice(0, 2).map(vibe => (
-                                                            <span key={vibe} className="vibe-tag">{vibe}</span>
-                                                        ))}
-                                                        <span className="energy-indicator">
-                                                            {enhancedTrack.energyLevel === 'high' ? '🔥' : 
-                                                             enhancedTrack.energyLevel === 'medium' ? '⚡' : '😌'}
-                                                        </span>
+                                <div className="cards-container">
+                                    <div className="cards-scroll">
+                                        {groupTracks.slice(0, 12).map((enhancedTrack, index) => {
+                                            const track = enhancedTrack.track;
+                                            return (
+                                                <div
+                                                    key={`${track.id}-${index}`}
+                                                    className={`track-card ${currentlyPlayingTrack === track.id ? 'playing' : ''}`}
+                                                    onClick={() => handlePlayTrack(enhancedTrack)}
+                                                >
+                                                    <div className="card-image-container">
+                                                        {track.albumArt ? (
+                                                            <ImageWithFallback
+                                                                src={track.albumArt}
+                                                                alt={`${track.album} by ${track.artist}`}
+                                                                className="card-image"
+                                                            />
+                                                        ) : (
+                                                            <div className="card-image-placeholder">
+                                                                <svg viewBox="0 0 24 24" width="48" height="48">
+                                                                    <path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" />
+                                                                </svg>
+                                                            </div>
+                                                        )}
+                                                        <div className="card-overlay">
+                                                            <button className="card-play-btn">
+                                                                {currentlyPlayingTrack === track.id && isPlaying ? (
+                                                                    <svg viewBox="0 0 24 24" width="24" height="24">
+                                                                        <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+                                                                        <rect x="14" y="4" width="4" height="16" fill="currentColor" />
+                                                                    </svg>
+                                                                ) : (
+                                                                    <svg viewBox="0 0 24 24" width="24" height="24">
+                                                                        <path fill="currentColor" d="M8 5.14v14l11-7-11-7z" />
+                                                                    </svg>
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                        {currentlyPlayingTrack === track.id && isPlaying && (
+                                                            <div className="playing-indicator">
+                                                                <span className="bar"></span>
+                                                                <span className="bar"></span>
+                                                                <span className="bar"></span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="card-content">
+                                                        <h3 className="card-title">{track.name}</h3>
+                                                        <p className="card-artist">{track.artist}</p>
+                                                        {track.playlistName && (
+                                                            <p className="card-playlist">From {track.playlistName}</p>
+                                                        )}
+                                                        <div className="card-meta">
+                                                            {enhancedTrack.vibeCategories.slice(0, 2).map(vibe => (
+                                                                <span key={vibe} className="vibe-pill">{vibe}</span>
+                                                            ))}
+                                                            <span className="energy-badge">
+                                                                {enhancedTrack.energyLevel === 'high' ? '🔥' : 
+                                                                 enhancedTrack.energyLevel === 'medium' ? '⚡' : '😌'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </li>
-                                        );
-                                    })}
-                                    {groupTracks.length > 20 && (
-                                        <li className="track-item more-tracks">
-                                            <span className="track-title">
-                                                <em>And {groupTracks.length - 20} more tracks...</em>
-                                            </span>
-                                        </li>
-                                    )}
-                                </ul>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>
